@@ -1,11 +1,15 @@
 # utilities/storages.py (alternate save)
-import posixpath, tempfile, requests
+import posixpath
+import tempfile
+
+import requests
+from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.files.storage import Storage
 from django.utils.deconstruct import deconstructible
-from django.core.exceptions import ValidationError
-from django.conf import settings
 
 UPLOAD_URL = "https://upload.imagekit.io/api/v1/files/upload"
+
 
 @deconstructible
 class ImageKitStorage(Storage):
@@ -27,7 +31,9 @@ class ImageKitStorage(Storage):
     def save(self, name, content, max_length=None):
         folder, filename = self._split(name)
 
-        with tempfile.NamedTemporaryFile(suffix=posixpath.splitext(filename)[1] or ".bin") as tmp:
+        with tempfile.NamedTemporaryFile(
+            suffix=posixpath.splitext(filename)[1] or ".bin"
+        ) as tmp:
             if hasattr(content, "multiple_chunks") and content.multiple_chunks():
                 for chunk in content.chunks():
                     tmp.write(chunk)
@@ -50,12 +56,18 @@ class ImageKitStorage(Storage):
                 "fileName": filename,
                 "folder": folder,
                 "useUniqueFileName": "true",
-                "isPrivateFile": "true" if getattr(settings, "IMAGEKIT_PRIVATE_FILES", False) else "false",
+                "isPrivateFile": "true"
+                if getattr(settings, "IMAGEKIT_PRIVATE_FILES", False)
+                else "false",
             }
 
             # Basic auth: private key as username, blank password
-            resp = requests.post(UPLOAD_URL, files=files, data=data,
-                                 auth=(settings.IMAGEKIT_PRIVATE_KEY, ""))
+            resp = requests.post(
+                UPLOAD_URL,
+                files=files,
+                data=data,
+                auth=(settings.IMAGEKIT_PRIVATE_KEY, ""),
+            )
             resp.raise_for_status()
             res = resp.json()
             # res["filePath"] like "/users/avatars/abc.jpg"
@@ -65,10 +77,16 @@ class ImageKitStorage(Storage):
         params = {"path": self._full_path(name)}
         if bool(getattr(settings, "IMAGEKIT_SIGNED_URLS", False)):
             from .imagekit_client import imagekit
-            params["signed"] = True
-            params["expire_seconds"] = int(getattr(settings, "IMAGEKIT_SIGNED_URL_TTL", 3600))
-            return imagekit.url(params)
-        return f'{settings.IMAGEKIT_URL_ENDPOINT}{self._full_path(name)}'
 
-    def exists(self, name): return False
-    def delete(self, name): pass  # keep your previous delete if you need it
+            params["signed"] = True
+            params["expire_seconds"] = int(
+                getattr(settings, "IMAGEKIT_SIGNED_URL_TTL", 3600)
+            )
+            return imagekit.url(params)
+        return f"{settings.IMAGEKIT_URL_ENDPOINT}{self._full_path(name)}"
+
+    def exists(self, name):
+        return False
+
+    def delete(self, name):
+        pass  # keep your previous delete if you need it

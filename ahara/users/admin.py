@@ -2,10 +2,11 @@ from allauth.account.decorators import secure_admin_login
 from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from django.utils.translation import gettext_lazy as _
 from django.utils.html import format_html
+from django.utils.translation import gettext_lazy as _
 
-from .forms import UserAdminChangeForm, UserAdminCreationForm
+from .forms import UserAdminChangeForm
+from .forms import UserAdminCreationForm
 from .models import User
 
 if getattr(settings, "DJANGO_ADMIN_FORCE_ALLAUTH", False):
@@ -23,7 +24,7 @@ class UserAdmin(BaseUserAdmin):
         "email",
         "username",
         "full_name_col",
-        "avatar_preview",   # thumbnail
+        "avatar_preview",  # thumbnail
         "is_staff",
         "is_superuser",
         "date_joined",
@@ -33,35 +34,92 @@ class UserAdmin(BaseUserAdmin):
         "country",
         "birth_date",
     )
-    list_filter = ("is_staff", "is_superuser", "is_active", "gender", "state", "country", "birth_date")
+    list_filter = (
+        "is_staff",
+        "is_superuser",
+        "is_active",
+        "gender",
+        "state",
+        "country",
+        "birth_date",
+    )
     ordering = ("-date_joined",)
-    search_fields = ("email", "username", "first_name", "last_name", "gender", "state", "country", "birth_date")
+    search_fields = (
+        "email",
+        "username",
+        "first_name",
+        "last_name",
+        "gender",
+        "state",
+        "country",
+        "birth_date",
+    )
 
     fieldsets = (
         (None, {"fields": ("email", "username", "password")}),
-        (_("Personal info"), {"fields": ("first_name", "last_name", "bio", "gender", "state", "country")}),
-        (_("Avatar"), {
-            "fields": ("avatar", "avatar_preview", "imagekit_file_id"),
-        }),
-        (_("Permissions"), {"fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions")}),
-        (_("Important dates"), {"fields": ("last_login", "date_joined","birth_date")}),
+        (
+            _("Personal info"),
+            {
+                "fields": (
+                    "first_name",
+                    "last_name",
+                    "bio",
+                    "gender",
+                    "state",
+                    "country",
+                )
+            },
+        ),
+        (
+            _("Avatar"),
+            {
+                "fields": ("avatar", "avatar_preview", "imagekit_file_id"),
+            },
+        ),
+        (
+            _("Permissions"),
+            {
+                "fields": (
+                    "is_active",
+                    "is_staff",
+                    "is_superuser",
+                    "groups",
+                    "user_permissions",
+                )
+            },
+        ),
+        (_("Important dates"), {"fields": ("last_login", "date_joined", "birth_date")}),
     )
 
     # allow avatar upload when creating a user too
     add_fieldsets = (
-        (None, {
-            "classes": ("wide",),
-            "fields": (
-                "email", "username", "first_name", "last_name",
-                "password1", "password2",
-                "avatar",                     # <--- added here
-                "is_active", "is_staff", "is_superuser",
-            ),
-        }),
+        (
+            None,
+            {
+                "classes": ("wide",),
+                "fields": (
+                    "email",
+                    "username",
+                    "first_name",
+                    "last_name",
+                    "password1",
+                    "password2",
+                    "avatar",  # <--- added here
+                    "is_active",
+                    "is_staff",
+                    "is_superuser",
+                ),
+            },
+        ),
     )
 
     # metadata/preview read-only
-    readonly_fields = ("date_joined", "full_name_readonly", "imagekit_file_id", "avatar_preview")
+    readonly_fields = (
+        "date_joined",
+        "full_name_readonly",
+        "imagekit_file_id",
+        "avatar_preview",
+    )
 
     @admin.display(ordering="first_name", description="Full name")
     def full_name_col(self, obj: User):
@@ -83,7 +141,7 @@ class UserAdmin(BaseUserAdmin):
         try:
             signed = bool(getattr(settings, "IMAGEKIT_SIGNED_URLS", False))
             thumb = obj.avatar_url(64, 64, signed=signed)
-            full  = obj.avatar_url(256, 256, signed=signed)
+            full = obj.avatar_url(256, 256, signed=signed)
         except Exception:
             return "-"
 

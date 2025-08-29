@@ -39,7 +39,9 @@ class StateEnum(Enum):
     WEST_BENGAL = "West Bengal"
     ANDAMAN_AND_NICOBAR_ISLANDS = "Andaman and Nicobar Islands"
     CHANDIGARH = "Chandigarh"
-    DADRA_AND_NAGAR_HAVELI_AND_DAMAN_AND_DIU = "Dadra and Nagar Haveli and Daman and Diu"
+    DADRA_AND_NAGAR_HAVELI_AND_DAMAN_AND_DIU = (
+        "Dadra and Nagar Haveli and Daman and Diu"
+    )
     DELHI = "Delhi"
     JAMMU_AND_KASHMIR = "Jammu and Kashmir"
     LADAKH = "Ladakh"

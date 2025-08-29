@@ -1,9 +1,15 @@
 # ahara/users/signals.py
 import posixpath
-from django.db.models.signals import pre_save, post_save, post_delete
+
+from django.db.models.signals import post_delete
+from django.db.models.signals import post_save
+from django.db.models.signals import pre_save
 from django.dispatch import receiver
-from .models import User
+
 from utilities.imagekit_client import imagekit
+
+from .models import User
+
 
 @receiver(pre_save, sender=User)
 def _remember_old_avatar(sender, instance: User, **kwargs):
@@ -16,10 +22,13 @@ def _remember_old_avatar(sender, instance: User, **kwargs):
     except sender.DoesNotExist:
         old = None
     if old:
-        changed = (old.avatar and (not instance.avatar or old.avatar.name != instance.avatar.name))
+        changed = old.avatar and (
+            not instance.avatar or old.avatar.name != instance.avatar.name
+        )
         if changed:
             instance._old_avatar_name = old.avatar.name
             instance._old_file_id = old.imagekit_file_id
+
 
 @receiver(post_save, sender=User)
 def _backfill_file_id_and_cleanup(sender, instance: User, created, **kwargs):
@@ -27,12 +36,18 @@ def _backfill_file_id_and_cleanup(sender, instance: User, created, **kwargs):
     if instance.avatar and not instance.imagekit_file_id:
         folder, filename = posixpath.split("/" + instance.avatar.name)
         try:
-            files = imagekit.list_files({"path": folder + "/", "name": filename, "limit": 1})
-            items = getattr(files, "list", None) or getattr(files, "results", None) or []
+            files = imagekit.list_files(
+                {"path": folder + "/", "name": filename, "limit": 1}
+            )
+            items = (
+                getattr(files, "list", None) or getattr(files, "results", None) or []
+            )
             if items:
                 file_id = getattr(items[0], "file_id", None) or items[0].get("fileId")
                 if file_id:
-                    sender.objects.filter(pk=instance.pk).update(imagekit_file_id=file_id)
+                    sender.objects.filter(pk=instance.pk).update(
+                        imagekit_file_id=file_id
+                    )
         except Exception:
             pass
 
@@ -41,12 +56,13 @@ def _backfill_file_id_and_cleanup(sender, instance: User, created, **kwargs):
     old_name = getattr(instance, "_old_avatar_name", None)
     try:
         if old_id:
-            imagekit.delete_file(old_id)      # server-side delete by fileId
+            imagekit.delete_file(old_id)  # server-side delete by fileId
         elif old_name:
             # fallback delete by path (uses storage.delete best-effort)
             instance._meta.get_field("avatar").storage.delete(old_name)
     except Exception:
         pass
+
 
 @receiver(post_delete, sender=User)
 def _delete_avatar_on_user_delete(sender, instance: User, **kwargs):

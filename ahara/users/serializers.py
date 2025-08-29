@@ -1,12 +1,13 @@
 # ahara/users/serializers.py
 from __future__ import annotations
+
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
-from rest_framework.validators import UniqueValidator
-from utilities.username_gen import _generate_unique_username
 from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.validators import UniqueValidator
 
+from utilities.username_gen import _generate_unique_username
 
 User = get_user_model()
 
@@ -18,8 +19,14 @@ class UserCredsSerializer(serializers.ModelSerializer):
       - validates: unique & well-formed email, password via Django validators
       - creates user with a unique, auto-generated username from email local-part
     """
+
     email = serializers.EmailField(
-        validators=[UniqueValidator(queryset=User.objects.all(), message="A user with this email already exists.")],
+        validators=[
+            UniqueValidator(
+                queryset=User.objects.all(),
+                message="A user with this email already exists.",
+            )
+        ],
     )
     password = serializers.CharField(write_only=True, style={"input_type": "password"})
 
@@ -46,14 +53,15 @@ class UserCredsSerializer(serializers.ModelSerializer):
 
         # Prefer the manager's create_user if present (handles normalization, etc.)
         if hasattr(User.objects, "create_user"):
-            user = User.objects.create_user(username=username, email=email, password=password)
+            user = User.objects.create_user(
+                username=username, email=email, password=password
+            )
         else:
             user = User(username=username, email=email)
             user.set_password(password)
             user.save()
 
         return user
-
 
 
 class LoginSerializer(serializers.Serializer):
@@ -77,7 +85,6 @@ class LoginSerializer(serializers.Serializer):
 
         attrs["user"] = user
         return attrs
-    
 
 
 class UserDetailSerializer(serializers.ModelSerializer):
@@ -87,10 +94,19 @@ class UserDetailSerializer(serializers.ModelSerializer):
         model = User
         # Include the fields you want to expose (exclude password, is_staff, is_superuser)
         fields = [
-            "id", "username", "email",
-            "first_name", "last_name",
-            "bio", "gender", "city", "state", "country", "birth_date",
-            "date_joined", "is_active",
+            "id",
+            "username",
+            "email",
+            "first_name",
+            "last_name",
+            "bio",
+            "gender",
+            "city",
+            "state",
+            "country",
+            "birth_date",
+            "date_joined",
+            "is_active",
             "avatar_url",
         ]
         read_only_fields = fields
