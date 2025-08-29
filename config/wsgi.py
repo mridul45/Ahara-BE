@@ -14,19 +14,19 @@ framework.
 
 """
 
+# config/wsgi.py
 import os
 import sys
 from pathlib import Path
-
 from django.core.wsgi import get_wsgi_application
 
-# This allows easy placement of apps within the interior
-# ahara directory.
 BASE_DIR = Path(__file__).resolve(strict=True).parent.parent
 sys.path.append(str(BASE_DIR / "ahara"))
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.production")
 
-# This application object is used by any WSGI server configured to use this
-# file. This includes Django's development server, if the WSGI_APPLICATION
-# setting points here.
+# If DJANGO_SETTINGS_MODULE is already set (e.g., by Render), do nothing.
+if "DJANGO_SETTINGS_MODULE" not in os.environ:
+    env = os.environ.get("DJANGO_ENV", "production").lower()
+    default_module = "config.settings.base" if env in {"local", "dev", "development"} else "config.settings.production"
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", default_module)
+
 application = get_wsgi_application()
