@@ -103,6 +103,7 @@ THIRD_PARTY_APPS = [
     "rest_framework",
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",
+    "corsheaders",
 ]
 LOCAL_APPS = [
     "ahara.users",
@@ -145,6 +146,7 @@ AUTH_PASSWORD_VALIDATORS = [
 # MIDDLEWARE
 # ---------------------------------------------------------------------
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     # WhiteNoise must come right after SecurityMiddleware
     "whitenoise.middleware.WhiteNoiseMiddleware",
@@ -156,8 +158,14 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "allauth.account.middleware.AccountMiddleware",
+    
 ]
 
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    # add your production frontend, e.g.:
+    # "https://your-frontend-domain.com",
+]
 # ---------------------------------------------------------------------
 # STATIC / MEDIA
 # ---------------------------------------------------------------------
