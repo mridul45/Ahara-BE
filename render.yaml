@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: ahara
+    env: python
+    pythonVersion: "3.12"
+    buildCommand: "./build.sh"
+    startCommand: "gunicorn config.wsgi:application"
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12"
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.production
+      - key: DATABASE_URL
+        value: "postgresql://admin:GwhJqdNPxIA7GVxvp5f36VprA89rfu9N@dpg-d2o4g915pdvs739frjpg-a.singapore-postgres.render.com/ahara"
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: IMAGEKIT_PUBLIC_KEY
+        value: "public_X7+uU9BlUtqiXxkWebkCHEgCJhw="
+      - key: IMAGEKIT_PRIVATE_KEY
+        value: "private_I2r4J7lCbOYvsdrVw2tDqVNdA3g="
+      - key: IMAGEKIT_URL_ENDPOINT
+        value: "https://ik.imagekit.io/v02nbjhwo"
