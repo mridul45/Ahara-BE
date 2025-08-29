@@ -47,7 +47,10 @@ class User(AbstractBaseUser, PermissionsMixin):
         blank=True,
     )
     city = models.CharField(
-        _("City of Residence"), max_length=100, null=True, blank=True
+        _("City of Residence"),
+        max_length=100,
+        null=True,
+        blank=True,
     )
     state = models.CharField(
         _("Current State"),

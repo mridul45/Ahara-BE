@@ -37,7 +37,7 @@ def _backfill_file_id_and_cleanup(sender, instance: User, created, **kwargs):
         folder, filename = posixpath.split("/" + instance.avatar.name)
         try:
             files = imagekit.list_files(
-                {"path": folder + "/", "name": filename, "limit": 1}
+                {"path": folder + "/", "name": filename, "limit": 1},
             )
             items = (
                 getattr(files, "list", None) or getattr(files, "results", None) or []
@@ -46,7 +46,7 @@ def _backfill_file_id_and_cleanup(sender, instance: User, created, **kwargs):
                 file_id = getattr(items[0], "file_id", None) or items[0].get("fileId")
                 if file_id:
                     sender.objects.filter(pk=instance.pk).update(
-                        imagekit_file_id=file_id
+                        imagekit_file_id=file_id,
                     )
         except Exception:
             pass

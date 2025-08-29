@@ -82,7 +82,8 @@ class AuthViewSet(viewsets.GenericViewSet):
     def get_authenticators(self):
         action = getattr(self, "action", None)
         classes = self.authentication_action_classes.get(
-            action, self.authentication_classes
+            action,
+            self.authentication_classes,
         )
         return [cls() for cls in classes]
 
@@ -140,7 +141,10 @@ class AuthViewSet(viewsets.GenericViewSet):
             "tokens": {"refresh": str(refresh), "access": str(access)},
         }
         return api_response(
-            request, data=payload, status_code=status.HTTP_200_OK, message="Logged in"
+            request,
+            data=payload,
+            status_code=status.HTTP_200_OK,
+            message="Logged in",
         )
 
     @action(detail=False, methods=["get"], url_path="me", url_name="me")
