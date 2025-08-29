@@ -32,7 +32,7 @@ class ImageKitStorage(Storage):
         folder, filename = self._split(name)
 
         with tempfile.NamedTemporaryFile(
-            suffix=posixpath.splitext(filename)[1] or ".bin"
+            suffix=posixpath.splitext(filename)[1] or ".bin",
         ) as tmp:
             if hasattr(content, "multiple_chunks") and content.multiple_chunks():
                 for chunk in content.chunks():
@@ -80,7 +80,7 @@ class ImageKitStorage(Storage):
 
             params["signed"] = True
             params["expire_seconds"] = int(
-                getattr(settings, "IMAGEKIT_SIGNED_URL_TTL", 3600)
+                getattr(settings, "IMAGEKIT_SIGNED_URL_TTL", 3600),
             )
             return imagekit.url(params)
         return f"{settings.IMAGEKIT_URL_ENDPOINT}{self._full_path(name)}"

@@ -25,7 +25,7 @@ class UserCredsSerializer(serializers.ModelSerializer):
             UniqueValidator(
                 queryset=User.objects.all(),
                 message="A user with this email already exists.",
-            )
+            ),
         ],
     )
     password = serializers.CharField(write_only=True, style={"input_type": "password"})
@@ -54,7 +54,9 @@ class UserCredsSerializer(serializers.ModelSerializer):
         # Prefer the manager's create_user if present (handles normalization, etc.)
         if hasattr(User.objects, "create_user"):
             user = User.objects.create_user(
-                username=username, email=email, password=password
+                username=username,
+                email=email,
+                password=password,
             )
         else:
             user = User(username=username, email=email)
