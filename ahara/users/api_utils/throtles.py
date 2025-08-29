@@ -1,13 +1,17 @@
-from rest_framework.throttling import AnonRateThrottle,SimpleRateThrottle
+from rest_framework.throttling import AnonRateThrottle
+from rest_framework.throttling import SimpleRateThrottle
+
 
 class SignupThrottle(AnonRateThrottle):
     scope = "signup"
 
+
 class LoginIPThrottle(AnonRateThrottle):
-    scope = "login"          # per-IP
+    scope = "login"  # per-IP
+
 
 class LoginUserThrottle(SimpleRateThrottle):
-    scope = "login_user"     # per-email (to slow attacks on a single account)
+    scope = "login_user"  # per-email (to slow attacks on a single account)
 
     def get_cache_key(self, request, view):
         if request.method != "POST":

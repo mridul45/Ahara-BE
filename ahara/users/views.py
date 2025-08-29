@@ -1,16 +1,22 @@
 # ahara/users/views.py
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from rest_framework import status, viewsets
+from rest_framework import status
+from rest_framework import viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework.response import Response
+from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .serializers import UserCredsSerializer,LoginSerializer,UserDetailSerializer
-from .api_utils.throtles import SignupThrottle,LoginIPThrottle,LoginUserThrottle  # your file name/spelling
 from utilities.response import api_response
+
+from .api_utils.throtles import LoginIPThrottle  # your file name/spelling
+from .api_utils.throtles import LoginUserThrottle  # your file name/spelling
+from .api_utils.throtles import SignupThrottle  # your file name/spelling
+from .serializers import LoginSerializer
+from .serializers import UserCredsSerializer
+from .serializers import UserDetailSerializer
 
 User = get_user_model()
 
@@ -21,6 +27,7 @@ class AuthViewSet(viewsets.GenericViewSet):
     Routes (via router under /users/):
       POST /users/auth/register/  -> public signup (throttled) + returns JWTs
     """
+
     queryset = User._default_manager.all()
 
     # ---- Defaults (applied when an action isn't in the maps) ----
@@ -47,7 +54,10 @@ class AuthViewSet(viewsets.GenericViewSet):
     }
     throttle_action_classes = {
         "register": [SignupThrottle],  # rate uses DEFAULT_THROTTLE_RATES['signup']
-        "login": [LoginIPThrottle, LoginUserThrottle],  # rate uses DEFAULT_THROTTLE_RATES['login']
+        "login": [
+            LoginIPThrottle,
+            LoginUserThrottle,
+        ],  # rate uses DEFAULT_THROTTLE_RATES['login']
         "me": [],  # no throttling for this endpoint
     }
 
@@ -71,7 +81,9 @@ class AuthViewSet(viewsets.GenericViewSet):
 
     def get_authenticators(self):
         action = getattr(self, "action", None)
-        classes = self.authentication_action_classes.get(action, self.authentication_classes)
+        classes = self.authentication_action_classes.get(
+            action, self.authentication_classes
+        )
         return [cls() for cls in classes]
 
     def get_throttles(self):
@@ -107,7 +119,6 @@ class AuthViewSet(viewsets.GenericViewSet):
             status_code=status.HTTP_201_CREATED,
             message="User registered",
         )
-    
 
     @action(detail=False, methods=["post"], url_path="login", url_name="login")
     def login(self, request, *args, **kwargs):
@@ -128,9 +139,9 @@ class AuthViewSet(viewsets.GenericViewSet):
             "email": user.email,
             "tokens": {"refresh": str(refresh), "access": str(access)},
         }
-        return api_response(request, data=payload, status_code=status.HTTP_200_OK, message="Logged in")
-    
-
+        return api_response(
+            request, data=payload, status_code=status.HTTP_200_OK, message="Logged in"
+        )
 
     @action(detail=False, methods=["get"], url_path="me", url_name="me")
     def me(self, request, *args, **kwargs):
