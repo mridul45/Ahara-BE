@@ -1,20 +1,26 @@
 services:
   - type: web
     name: ahara
-    env: python
-    pythonVersion: "3.12"
-    buildCommand: "./build.sh"
-    startCommand: "gunicorn config.wsgi:application"
-    healthCheckPath: /
+    runtime: python
+    plan: starter             # or free/standard/etc.
+    region: singapore         # optional; pick the one nearest you
+    buildCommand: "bash build.sh"
+    preDeployCommand: "python manage.py migrate"
+    startCommand: "gunicorn config.wsgi:application --bind 0.0.0.0:$PORT"
+    healthCheckPath: "/"
     envVars:
       - key: PYTHON_VERSION
-        value: "3.12"
+        value: "3.12.0"
       - key: DJANGO_SETTINGS_MODULE
-        value: config.settings.production
+        value: "config.settings.production"
       - key: DATABASE_URL
-        value: "postgresql://admin:GwhJqdNPxIA7GVxvp5f36VprA89rfu9N@dpg-d2o4g915pdvs739frjpg-a.singapore-postgres.render.com/ahara"
+        value: "postgresql://admin:GwhJqdNPxIA7GVxvp5f36VprA89rfu9N@dpg-d2o4g915pdvs739frjpg-a.singapore-postgres.render.com/ahara?sslmode=require"
       - key: DJANGO_SECRET_KEY
         generateValue: true
+      - key: DJANGO_ALLOWED_HOSTS       # cookiecutter-django uses this
+        value: "ahara.onrender.com"
+      - key: CSRF_TRUSTED_ORIGINS       # Django 4+ needs this for HTTPS
+        value: "https://ahara.onrender.com"
       - key: IMAGEKIT_PUBLIC_KEY
         value: "public_X7+uU9BlUtqiXxkWebkCHEgCJhw="
       - key: IMAGEKIT_PRIVATE_KEY
