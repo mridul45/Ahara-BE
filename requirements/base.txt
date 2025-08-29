@@ -94,7 +94,7 @@ rcssmin==1.1.2
 redis==6.4.0
 regex==2025.7.34
 requests==2.32.5
-requests-toolbelt==0.10.1
+requests-toolbelt==1.0.0
 rjsmin==1.2.2
 roman-numerals-py==3.1.0
 ruff==0.12.10
