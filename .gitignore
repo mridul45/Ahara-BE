@@ -63,7 +63,7 @@ target/
 
 # Environments
 .venv
-venv/
+virtualenv/
 ENV/
 
 # Rope project settings
@@ -273,3 +273,7 @@ ahara/media/
 .pytest_cache/
 .env
 .env.production
+
+# Ignore migration files, but not the directory or __init__.py
+*/migrations/*
+!*/migrations/__init__.py
