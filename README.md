@@ -30,6 +30,9 @@ Ahara is a Django-based web application designed to be the future of health and 
 ## Features
 
 -   **User Authentication:** Complete user management system including sign-up, login, logout, and email verification, powered by `django-allauth`.
+-   **OTP Based Login:** Secure OTP-based login system.
+-   **OTP Expiration:** OTPs expire after 10 minutes for enhanced security.
+-   **User Profile:** User profiles with avatars and other details.
 -   **RESTful API:** A comprehensive REST API built with `djangorestframework` for seamless integration with other services.
 -   **Static Asset Management:** Optimized static file handling with `whitenoise` and `django-compressor`.
 -   **Asynchronous Tasks:** Ready for background tasks with Celery (if configured).
@@ -90,7 +93,7 @@ Make sure you have the following installed on your local machine:
     ```
 
 6.  **Create a superuser:**
-    To access the Django admin panel, you'll need a superuser account.
+    To access the Django admin panel, you'''ll need a superuser account.
     ```sh
     python manage.py createsuperuser
     ```
