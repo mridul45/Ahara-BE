@@ -289,7 +289,9 @@ REST_FRAMEWORK = {
         "user": "1000/min",
         "signup": "5/min",
         "login": "10/min",        # per-IP
-        "login_user": "5/min",    # per-email
+        "login_user": "5/min",
+        "verify_otp": "5/min",     # NEW per-IP throttle for OTP
+        "verify_otp_user": "5/min",    # per-email
     },
     "EXCEPTION_HANDLER": "utilities.response.unified_exception_handler",
 }
