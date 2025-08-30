@@ -3,9 +3,11 @@ from __future__ import annotations
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
+from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.validators import UniqueValidator
+from .models import Otp
 
 from utilities.username_gen import _generate_unique_username
 
@@ -119,3 +121,34 @@ class UserDetailSerializer(serializers.ModelSerializer):
             return obj.avatar_url()  # you can tune w/h if you like
         except Exception:
             return None
+
+
+class VerifyOtpSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    otp = serializers.IntegerField()
+
+    def validate(self, attrs):
+        email = attrs.get("email")
+        otp = attrs.get("otp")
+
+        try:
+            user = User._default_manager.get(email__iexact=email)
+        except User.DoesNotExist:
+            raise AuthenticationFailed("Invalid credentials.")
+
+        try:
+            otp_instance = Otp.objects.filter(user=user).latest('created_at')
+        except Otp.DoesNotExist:
+            raise AuthenticationFailed("OTP not found for this user.")
+
+        # Check if OTP is older than 10 minutes
+        if otp_instance.created_at < timezone.now() - timezone.timedelta(minutes=10):
+            otp_instance.delete()
+            raise AuthenticationFailed("OTP has expired.")
+
+        if otp_instance.otp != otp:
+            raise AuthenticationFailed("Invalid OTP.")
+
+        attrs["user"] = user
+        attrs["otp_instance"] = otp_instance
+        return attrs

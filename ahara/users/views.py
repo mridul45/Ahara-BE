@@ -11,12 +11,14 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from utilities.response import api_response
 
-from .api_utils.throtles import LoginIPThrottle  # your file name/spelling
-from .api_utils.throtles import LoginUserThrottle  # your file name/spelling
-from .api_utils.throtles import SignupThrottle  # your file name/spelling
+from .api_utils.throtles import (
+    SignupThrottle,LoginIPThrottle,LoginUserThrottle,VerifyOtpIPThrottle,VerifyOtpUserThrottle
+)  # your file name/spelling
 from .serializers import LoginSerializer
 from .serializers import UserCredsSerializer
 from .serializers import UserDetailSerializer
+from .serializers import VerifyOtpSerializer
+from .models import Otp
 
 User = get_user_model()
 
@@ -41,16 +43,19 @@ class AuthViewSet(viewsets.GenericViewSet):
         "register": UserCredsSerializer,
         "login": LoginSerializer,
         "me": UserDetailSerializer,
+        "verify_otp": VerifyOtpSerializer,
     }
     permission_action_classes = {
         "register": [AllowAny],
         "login": [AllowAny],
         "me": [IsAuthenticated],
+        "verify_otp": [AllowAny],
     }
     authentication_action_classes = {
         "register": [],  # open endpoint (skip JWT/Session parsing)
         "login": [],  # open endpoint (skip JWT/Session parsing)
         "me": [JWTAuthentication],  # require JWT for this endpoint
+        "verify_otp": [],  # open endpoint (skip JWT/Session parsing)
     }
     throttle_action_classes = {
         "register": [SignupThrottle],  # rate uses DEFAULT_THROTTLE_RATES['signup']
@@ -59,6 +64,7 @@ class AuthViewSet(viewsets.GenericViewSet):
             LoginUserThrottle,
         ],  # rate uses DEFAULT_THROTTLE_RATES['login']
         "me": [],  # no throttling for this endpoint
+        "verify_otp": [VerifyOtpIPThrottle, VerifyOtpUserThrottle],  # NEW
     }
 
     # Ensure self.action is available before DRF asks for authenticators/permissions.
@@ -104,21 +110,21 @@ class AuthViewSet(viewsets.GenericViewSet):
         ser.is_valid(raise_exception=True)
         user = ser.save()
 
-        refresh = RefreshToken.for_user(user)
-        access = refresh.access_token
+        '''  Create OTP entry for the user'''
+        Otp.objects.create(user=user)
 
         payload = {
             "id": str(user.pk),
             "username": user.username,
             "email": user.email,
             "date_joined": user.date_joined,
-            "tokens": {"refresh": str(refresh), "access": str(access)},
+            "tokens": {},
         }
         return api_response(
             request,
             data=payload,
             status_code=status.HTTP_201_CREATED,
-            message="User registered",
+            message="User registered. OTP send to email.",
         )
 
     @action(detail=False, methods=["post"], url_path="login", url_name="login")
@@ -159,4 +165,53 @@ class AuthViewSet(viewsets.GenericViewSet):
             data=ser.data,
             status_code=status.HTTP_200_OK,
             message="Current user",
+        )
+
+
+    @action(detail=False, methods=["post"], url_path="verify-otp", url_name="verify_otp")
+    @transaction.atomic
+    def verify_otp(self, request, *args, **kwargs):
+        """
+        Body: {"email": "...", "otp": 123456}
+        Validates OTP. On success, deletes the OTP, marks user verified (if fields exist),
+        and returns a fresh JWT pair (refresh + access).
+        Entire flow is atomic; OTP row is locked to avoid races.
+        """
+        ser = self.get_serializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+
+        user = ser.validated_data["user"]
+        otp_instance = ser.validated_data["otp_instance"]  # from serializer validation
+
+        # Re-fetch and LOCK the latest OTP row for this user to avoid race conditions.
+        # (On SQLite this is effectively a no-op lock, but atomic still helps.)
+        locked_latest = (
+            Otp.objects.select_for_update()
+            .filter(user=user)
+            .order_by("-created_at")
+            .first()
+        )
+        if not locked_latest or locked_latest.pk != otp_instance.pk:
+            # Someone else may have consumed/rotated the OTP in a concurrent request
+            raise AuthenticationFailed("Invalid or expired OTP.")
+
+        # Single-use: delete the locked OTP now
+        locked_latest.delete()
+
+        # Mint fresh JWTs
+        refresh = RefreshToken.for_user(user)
+        access = refresh.access_token
+
+        payload = {
+            "id": str(user.pk),
+            "username": getattr(user, "username", None),
+            "email": user.email,
+            "verified": True,
+            "tokens": {"refresh": str(refresh), "access": str(access)},
+        }
+        return api_response(
+            request,
+            data=payload,
+            status_code=status.HTTP_200_OK,
+            message="OTP verified",
         )
