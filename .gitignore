@@ -275,5 +275,5 @@ ahara/media/
 .env.production
 
 # Ignore migration files, but not the directory or __init__.py
-*/migrations/*
-!*/migrations/__init__.py
+**/migrations/*.py
+!**/migrations/__init__.py
