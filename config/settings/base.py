@@ -9,28 +9,26 @@ from urllib.parse import urlparse
 import environ
 
 BASE_DIR = Path(__file__).resolve(strict=True).parent.parent.parent
-# ahara/
 APPS_DIR = BASE_DIR / "ahara"
 env = environ.Env()
 
-# ---------------------------------------------------------------------
-# .env loading (only if you explicitly enable it)
-# ---------------------------------------------------------------------
+# -------------------- .env loading --------------------
 READ_DOT_ENV_FILE = env.bool("DJANGO_READ_DOT_ENV_FILE", default=False)
 if READ_DOT_ENV_FILE:
-    # OS environment variables take precedence over variables from .env
     if env("DJANGO_ENV", default="local") == "production":
         env.read_env(str(BASE_DIR / ".env.production"))
     else:
         env.read_env(str(BASE_DIR / ".env"))
 
-# ---------------------------------------------------------------------
-# GENERAL / SECURITY
-# ---------------------------------------------------------------------
-# IMPORTANT: use DJANGO_SECRET_KEY (Render has this; was missing earlier)
-SECRET_KEY = env("SECRET_KEY", default="dev-insecure-key")  # safe dev default only
-
+# -------------------- General / Security --------------------
+SECRET_KEY = env("SECRET_KEY", default="dev-insecure-key")  # dev only
 DEBUG = env.bool("DJANGO_DEBUG", False)
+
+DJANGO_ENV = env("DJANGO_ENV", default=("production" if not DEBUG else "local"))
+IS_PROD = DJANGO_ENV == "production"
+
+# Your FE is on GitHub Pages (different site) → cross-site cookies required
+CROSS_SITE_COOKIES = env.bool("CROSS_SITE_COOKIES", default=True)
 
 TIME_ZONE = "UTC"
 LANGUAGE_CODE = "en-us"
@@ -39,11 +37,10 @@ USE_I18N = True
 USE_TZ = True
 LOCALE_PATHS = [str(BASE_DIR / "locale")]
 
-# Hosts & CSRF from env, with sensible local defaults
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
 CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[])
 
-# Auto-add Render external URL/hostname (Render sets RENDER_EXTERNAL_URL)
+# Auto add Render’s external URL/hostname
 external_url = os.environ.get("RENDER_EXTERNAL_URL") or os.environ.get("RENDER_EXTERNAL_HOSTNAME")
 if external_url:
     parsed = urlparse(external_url if "://" in external_url else f"https://{external_url}")
@@ -54,35 +51,29 @@ if external_url:
     if origin not in CSRF_TRUSTED_ORIGINS:
         CSRF_TRUSTED_ORIGINS.append(origin)
 
-# When behind Render’s proxy
 USE_X_FORWARDED_HOST = True
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
-# Secure cookies in non-debug
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 
-# ---------------------------------------------------------------------
-# DATABASES
-# ---------------------------------------------------------------------
+# CSRF cookie must be readable by JS to send X-CSRFToken from SPA
+CSRF_COOKIE_HTTPONLY = False
+# For cross-site XHR, CSRF cookie needs SameSite=None
+CSRF_COOKIE_SAMESITE = "None" if CROSS_SITE_COOKIES else ("Lax" if not IS_PROD else "Lax")
+
+# -------------------- DB --------------------
 DATABASES = {
-    "default": env.db(
-        "DATABASE_URL",
-        default="postgres:///ahara",
-    ),
+    "default": env.db("DATABASE_URL", default="postgres:///ahara"),
 }
 DATABASES["default"]["ATOMIC_REQUESTS"] = True
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# ---------------------------------------------------------------------
-# URLS / WSGI
-# ---------------------------------------------------------------------
+# -------------------- URLS / WSGI --------------------
 ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"
 
-# ---------------------------------------------------------------------
-# APPS
-# ---------------------------------------------------------------------
+# -------------------- Apps --------------------
 DJANGO_APPS = [
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -110,14 +101,7 @@ LOCAL_APPS = [
 ]
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
-# ---------------------------------------------------------------------
-# MIGRATIONS
-# ---------------------------------------------------------------------
-MIGRATION_MODULES = {"sites": "ahara.contrib.sites.migrations"}
-
-# ---------------------------------------------------------------------
-# AUTH
-# ---------------------------------------------------------------------
+# -------------------- Auth --------------------
 AUTHENTICATION_BACKENDS = [
     "django.contrib.auth.backends.ModelBackend",
     "allauth.account.auth_backends.AuthenticationBackend",
@@ -126,9 +110,7 @@ AUTH_USER_MODEL = "users.User"
 LOGIN_REDIRECT_URL = "users:redirect"
 LOGIN_URL = "account_login"
 
-# ---------------------------------------------------------------------
-# PASSWORDS
-# ---------------------------------------------------------------------
+# -------------------- Passwords --------------------
 PASSWORD_HASHERS = [
     "django.contrib.auth.hashers.Argon2PasswordHasher",
     "django.contrib.auth.hashers.PBKDF2PasswordHasher",
@@ -137,19 +119,15 @@ PASSWORD_HASHERS = [
 ]
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
-    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
-     "OPTIONS": {"min_length": 5}},
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator", "OPTIONS": {"min_length": 5}},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
-# ---------------------------------------------------------------------
-# MIDDLEWARE
-# ---------------------------------------------------------------------
+# -------------------- Middleware --------------------
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
-    # WhiteNoise must come right after SecurityMiddleware
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.locale.LocaleMiddleware",
@@ -159,37 +137,31 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "allauth.account.middleware.AccountMiddleware",
-    
 ]
 
+# -------------------- CORS --------------------
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
-    # add your production frontend, e.g.:
-    # "https://your-frontend-domain.com",
+    "https://mridul45.github.io",  # GitHub Pages FE
 ]
-# ---------------------------------------------------------------------
-# STATIC / MEDIA
-# ---------------------------------------------------------------------
+CORS_ALLOW_CREDENTIALS = True
+
+# Also trust FE for CSRF
+if "https://mridul45.github.io" not in CSRF_TRUSTED_ORIGINS:
+    CSRF_TRUSTED_ORIGINS.append("https://mridul45.github.io")
+
+# -------------------- Static / Media --------------------
 STATIC_ROOT = str(BASE_DIR / "staticfiles")
 STATIC_URL = "/static/"
 STATICFILES_DIRS = [str(APPS_DIR / "static")]
-
-# Django 5+ storage config with WhiteNoise for staticfiles
 STORAGES = {
-    "default": {
-        "BACKEND": "django.core.files.storage.FileSystemStorage",
-    },
-    "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
-    },
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
 }
-
 MEDIA_ROOT = str(APPS_DIR / "media")
 MEDIA_URL = "/media/"
 
-# ---------------------------------------------------------------------
-# TEMPLATES
-# ---------------------------------------------------------------------
+# -------------------- Templates --------------------
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
@@ -212,9 +184,7 @@ TEMPLATES = [
 ]
 FORM_RENDERER = "django.forms.renderers.TemplatesSetting"
 
-# ---------------------------------------------------------------------
-# CRISPY / COMPRESSOR
-# ---------------------------------------------------------------------
+# -------------------- Crispy / Compressor --------------------
 CRISPY_TEMPLATE_PACK = "bootstrap5"
 CRISPY_ALLOWED_TEMPLATE_PACKS = "bootstrap5"
 INSTALLED_APPS += ["compressor"]
@@ -224,49 +194,30 @@ STATICFILES_FINDERS = [
     "compressor.finders.CompressorFinder",
 ]
 
-# ---------------------------------------------------------------------
-# FIXTURES
-# ---------------------------------------------------------------------
-FIXTURE_DIRS = (str(APPS_DIR / "fixtures"),)
-
-# ---------------------------------------------------------------------
-# EMAIL
-# ---------------------------------------------------------------------
+# -------------------- Email --------------------
 EMAIL_BACKEND = env("DJANGO_EMAIL_BACKEND", default="django.core.mail.backends.smtp.EmailBackend")
 EMAIL_TIMEOUT = 5
 
-# ---------------------------------------------------------------------
-# ADMIN
-# ---------------------------------------------------------------------
+# -------------------- Admin --------------------
 ADMIN_URL = "admin/"
 ADMINS = [("Mridul Singhal", "mridulsingha474@gmail.com")]
 MANAGERS = ADMINS
 DJANGO_ADMIN_FORCE_ALLAUTH = env.bool("DJANGO_ADMIN_FORCE_ALLAUTH", default=False)
 
-# ---------------------------------------------------------------------
-# LOGGING
-# ---------------------------------------------------------------------
+# -------------------- Logging --------------------
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "formatters": {
-        "verbose": {"format": "%(levelname)s %(asctime)s %(module)s %(process)d %(thread)d %(message)s"},
-    },
-    "handlers": {
-        "console": {"level": "DEBUG", "class": "logging.StreamHandler", "formatter": "verbose"},
-    },
+    "formatters": {"verbose": {"format": "%(levelname)s %(asctime)s %(module)s %(process)d %(thread)d %(message)s"}},
+    "handlers": {"console": {"level": "DEBUG", "class": "logging.StreamHandler", "formatter": "verbose"}},
     "root": {"level": "INFO", "handlers": ["console"]},
 }
 
-# ---------------------------------------------------------------------
-# REDIS
-# ---------------------------------------------------------------------
+# -------------------- Redis --------------------
 REDIS_URL = env("REDIS_URL", default="redis://localhost:6379/0")
 REDIS_SSL = REDIS_URL.startswith("rediss://")
 
-# ---------------------------------------------------------------------
-# allauth
-# ---------------------------------------------------------------------
+# -------------------- allauth --------------------
 ACCOUNT_ALLOW_REGISTRATION = env.bool("DJANGO_ACCOUNT_ALLOW_REGISTRATION", True)
 ACCOUNT_LOGIN_METHODS = {"username"}
 ACCOUNT_SIGNUP_FIELDS = ["email*", "username*", "password1*", "password2*"]
@@ -276,9 +227,7 @@ ACCOUNT_FORMS = {"signup": "ahara.users.forms.UserSignupForm"}
 SOCIALACCOUNT_ADAPTER = "ahara.users.adapters.SocialAccountAdapter"
 SOCIALACCOUNT_FORMS = {"signup": "ahara.users.forms.UserSocialSignupForm"}
 
-# ---------------------------------------------------------------------
-# DRF / JWT
-# ---------------------------------------------------------------------
+# -------------------- DRF / JWT --------------------
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ("rest_framework_simplejwt.authentication.JWTAuthentication",),
     "DEFAULT_THROTTLE_CLASSES": (
@@ -289,43 +238,41 @@ REST_FRAMEWORK = {
         "anon": "100/min",
         "user": "1000/min",
         "signup": "5/min",
-        "login": "10/min",        # per-IP
+        "login": "10/min",
         "login_user": "5/min",
-        "verify_otp": "5/min",     # NEW per-IP throttle for OTP
-        "verify_otp_user": "5/min",    # per-email
+        "verify_otp": "5/min",
+        "verify_otp_user": "5/min",
     },
     "EXCEPTION_HANDLER": "utilities.response.unified_exception_handler",
 }
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=20),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=10),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=14),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
-    "UPDATE_LAST_LOGIN": False,
     "ALGORITHM": "HS256",
-    "VERIFYING_KEY": None,
-    "AUDIENCE": None,
-    "ISSUER": None,
-    "JWK_URL": None,
-    "LEEWAY": 0,
     "AUTH_HEADER_TYPES": ("Bearer",),
     "AUTH_HEADER_NAME": "HTTP_AUTHORIZATION",
     "USER_ID_FIELD": "id",
     "USER_ID_CLAIM": "user_id",
-    "USER_AUTHENTICATION_RULE": "rest_framework_simplejwt.authentication.default_user_authentication_rule",
-    "AUTH_TOKEN_CLASSES": ("rest_framework_simplejwt.tokens.AccessToken",),
-    "TOKEN_TYPE_CLAIM": "token_type",
     "TOKEN_USER_CLASS": "rest_framework_simplejwt.models.TokenUser",
     "JTI_CLAIM": "jti",
-    "SLIDING_TOKEN_REFRESH_EXP_CLAIM": "refresh_exp",
-    "SLIDING_TOKEN_LIFETIME": timedelta(minutes=5),
-    "SLIDING_TOKEN_REFRESH_LIFETIME": timedelta(days=1),
+    "LEEWAY": 30,
+    "UPDATE_LAST_LOGIN": True,
 }
 
-# ---------------------------------------------------------------------
-# Your stuff...
-# ---------------------------------------------------------------------
+# -------------------- Refresh cookie (centralized) --------------------
+REFRESH_COOKIE_NAME = "ahara_rt"
+REFRESH_COOKIE_KWARGS = {
+    "httponly": True,
+    # Cross-site requires Secure=True + SameSite=None (GitHub Pages ↔ Render)
+    "secure": True if (IS_PROD or CROSS_SITE_COOKIES) else False,
+    "samesite": "None" if CROSS_SITE_COOKIES else ("Strict" if IS_PROD else "Lax"),
+    "path": "/",
+}
+
+# -------------------- Your stuff --------------------
 IMAGEKIT_PUBLIC_KEY = env("IMAGEKIT_PUBLIC_KEY")
 IMAGEKIT_PRIVATE_KEY = env("IMAGEKIT_PRIVATE_KEY")
 IMAGEKIT_URL_ENDPOINT = env("IMAGEKIT_URL_ENDPOINT")
