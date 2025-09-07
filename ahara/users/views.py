@@ -1,38 +1,47 @@
 # ahara/users/views.py
+''' <-------------------------------------- IMPORTS --------------------------------------> '''
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from rest_framework import status
-from rest_framework import viewsets
+
+from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import AllowAny
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from utilities.response import api_response
 
 from .api_utils.throtles import (
-    SignupThrottle,LoginIPThrottle,LoginUserThrottle,VerifyOtpIPThrottle,VerifyOtpUserThrottle
-)  # your file name/spelling
-from .serializers import LoginSerializer
-from .serializers import UserCredsSerializer
-from .serializers import UserDetailSerializer
-from .serializers import VerifyOtpSerializer
+    SignupThrottle,
+    LoginIPThrottle,
+    LoginUserThrottle,
+    VerifyOtpIPThrottle,
+    VerifyOtpUserThrottle,
+)
+from .serializers import (
+    LoginSerializer,
+    UserCredsSerializer,
+    UserDetailSerializer,
+    VerifyOtpSerializer,
+)
 from .models import Otp
+from utilities.cookies import _set_refresh_cookie, _clear_refresh_cookie
+
+''' <-------------------------------------- IMPORTS FINISH --------------------------------------> '''
 
 User = get_user_model()
 
 
 class AuthViewSet(viewsets.GenericViewSet):
     """
-    ViewSet using per-action maps for serializer, permissions, auth, and throttles.
-    Routes (via router under /users/):
-      POST /users/auth/register/  -> public signup (throttled) + returns JWTs
+    Auth ViewSet with per-action serializer/permission/auth/throttle maps.
     """
-
     queryset = User._default_manager.all()
 
-    # ---- Defaults (applied when an action isn't in the maps) ----
+    # ---- Defaults ----
     serializer_class = UserCredsSerializer
     permission_classes = [IsAuthenticated]
     authentication_classes = [JWTAuthentication]
@@ -44,38 +53,42 @@ class AuthViewSet(viewsets.GenericViewSet):
         "login": LoginSerializer,
         "me": UserDetailSerializer,
         "verify_otp": VerifyOtpSerializer,
+        # "refresh" uses cookie only -> no serializer
     }
     permission_action_classes = {
         "register": [AllowAny],
         "login": [AllowAny],
         "me": [IsAuthenticated],
         "verify_otp": [AllowAny],
+        "refresh": [AllowAny],
+        "logout": [AllowAny],
     }
     authentication_action_classes = {
-        "register": [],  # open endpoint (skip JWT/Session parsing)
-        "login": [],  # open endpoint (skip JWT/Session parsing)
-        "me": [JWTAuthentication],  # require JWT for this endpoint
-        "verify_otp": [],  # open endpoint (skip JWT/Session parsing)
+        "register": [],            # open endpoint
+        "login": [],               # open endpoint
+        "me": [JWTAuthentication],
+        "verify_otp": [],          # open endpoint
+        "refresh": [],             # cookie-based, not access-based
+        "logout": [],              # cookie-based
     }
     throttle_action_classes = {
-        "register": [SignupThrottle],  # rate uses DEFAULT_THROTTLE_RATES['signup']
-        "login": [
-            LoginIPThrottle,
-            LoginUserThrottle,
-        ],  # rate uses DEFAULT_THROTTLE_RATES['login']
-        "me": [],  # no throttling for this endpoint
-        "verify_otp": [VerifyOtpIPThrottle, VerifyOtpUserThrottle],  # NEW
+        "register": [SignupThrottle],
+        "login": [LoginIPThrottle, LoginUserThrottle],
+        "me": [],
+        "verify_otp": [VerifyOtpIPThrottle, VerifyOtpUserThrottle],
+        # optional: add a small throttle on refresh if you like
+        # "refresh": [SomeRefreshThrottle],
     }
 
     # Ensure self.action is available before DRF asks for authenticators/permissions.
     def initialize_request(self, request, *args, **kwargs):
         if not hasattr(self, "action"):
-            action_map = getattr(self, "action_map", None)  # set by the router
+            action_map = getattr(self, "action_map", None)
             if action_map:
                 self.action = action_map.get(request.method.lower())
         return super().initialize_request(request, *args, **kwargs)
 
-    # Safe helpers that read the maps using the (now early-set) action
+    # Map helpers
     def get_serializer_class(self):
         action = getattr(self, "action", None)
         return self.serializer_action_classes.get(action, self.serializer_class)
@@ -87,10 +100,7 @@ class AuthViewSet(viewsets.GenericViewSet):
 
     def get_authenticators(self):
         action = getattr(self, "action", None)
-        classes = self.authentication_action_classes.get(
-            action,
-            self.authentication_classes,
-        )
+        classes = self.authentication_action_classes.get(action, self.authentication_classes)
         return [cls() for cls in classes]
 
     def get_throttles(self):
@@ -98,19 +108,19 @@ class AuthViewSet(viewsets.GenericViewSet):
         classes = self.throttle_action_classes.get(action, self.throttle_classes)
         return [cls() for cls in classes]
 
-    # ---- Actions ----
+    # -------------------- Actions --------------------
     @action(detail=False, methods=["post"], url_path="register", url_name="register")
     @transaction.atomic
     def register(self, request, *args, **kwargs):
         """
         Body: {"email": "...", "password": "..."}
-        Creates the user and returns access/refresh tokens.
+        Creates the user and sends OTP (no tokens yet).
         """
         ser = self.get_serializer(data=request.data)
         ser.is_valid(raise_exception=True)
         user = ser.save()
 
-        '''  Create OTP entry for the user'''
+        # Create OTP entry for the user
         Otp.objects.create(user=user)
 
         payload = {
@@ -118,40 +128,41 @@ class AuthViewSet(viewsets.GenericViewSet):
             "username": user.username,
             "email": user.email,
             "date_joined": user.date_joined,
-            "tokens": {},
         }
         return api_response(
             request,
             data=payload,
             status_code=status.HTTP_201_CREATED,
-            message="User registered. OTP send to email.",
+            message="User registered. OTP sent to email.",
         )
 
     @action(detail=False, methods=["post"], url_path="login", url_name="login")
     def login(self, request, *args, **kwargs):
         """
         Body: {"email": "...", "password": "..."}
-        Validates credentials and returns a new JWT pair.
+        Validates credentials, returns access in JSON, sets refresh in HttpOnly cookie.
         """
         ser = self.get_serializer(data=request.data)
         ser.is_valid(raise_exception=True)
         user = ser.validated_data["user"]
 
         refresh = RefreshToken.for_user(user)
-        access = refresh.access_token
+        access = str(refresh.access_token)
 
         payload = {
             "id": str(user.pk),
             "username": user.username,
             "email": user.email,
-            "tokens": {"refresh": str(refresh), "access": str(access)},
+            "access": access,  # access ONLY in body
         }
-        return api_response(
+        resp = api_response(
             request,
             data=payload,
             status_code=status.HTTP_200_OK,
             message="Logged in",
         )
+        _set_refresh_cookie(resp, refresh)
+        return resp
 
     @action(detail=False, methods=["get"], url_path="me", url_name="me")
     def me(self, request, *args, **kwargs):
@@ -167,24 +178,23 @@ class AuthViewSet(viewsets.GenericViewSet):
             message="Current user",
         )
 
-
     @action(detail=False, methods=["post"], url_path="verify-otp", url_name="verify_otp")
     @transaction.atomic
     def verify_otp(self, request, *args, **kwargs):
         """
         Body: {"email": "...", "otp": 123456}
-        Validates OTP. On success, deletes the OTP, marks user verified (if fields exist),
-        and returns a fresh JWT pair (refresh + access).
+        On success:
+          - issues access token in JSON (FE stores in memory)
+          - sets refresh token in HttpOnly cookie (server-set)
         Entire flow is atomic; OTP row is locked to avoid races.
         """
         ser = self.get_serializer(data=request.data)
         ser.is_valid(raise_exception=True)
 
         user = ser.validated_data["user"]
-        otp_instance = ser.validated_data["otp_instance"]  # from serializer validation
+        otp_instance = ser.validated_data["otp_instance"]
 
-        # Re-fetch and LOCK the latest OTP row for this user to avoid race conditions.
-        # (On SQLite this is effectively a no-op lock, but atomic still helps.)
+        # Re-fetch and LOCK the latest OTP row for race safety
         locked_latest = (
             Otp.objects.select_for_update()
             .filter(user=user)
@@ -192,26 +202,97 @@ class AuthViewSet(viewsets.GenericViewSet):
             .first()
         )
         if not locked_latest or locked_latest.pk != otp_instance.pk:
-            # Someone else may have consumed/rotated the OTP in a concurrent request
             raise AuthenticationFailed("Invalid or expired OTP.")
-
-        # Single-use: delete the locked OTP now
+        # Single-use: consume OTP
         locked_latest.delete()
 
-        # Mint fresh JWTs
+        # Mint tokens
         refresh = RefreshToken.for_user(user)
-        access = refresh.access_token
+        access = str(refresh.access_token)
 
         payload = {
             "id": str(user.pk),
             "username": getattr(user, "username", None),
             "email": user.email,
             "verified": True,
-            "tokens": {"refresh": str(refresh), "access": str(access)},
+            "access": access,  # access ONLY in body
         }
-        return api_response(
+
+        resp = api_response(
             request,
             data=payload,
             status_code=status.HTTP_200_OK,
             message="OTP verified",
         )
+        _set_refresh_cookie(resp, refresh)
+        return resp
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="refresh",
+        url_name="refresh",
+        permission_classes=[AllowAny],
+        authentication_classes=[],  # cookie-based, not access-based
+    )
+    def refresh(self, request, *args, **kwargs):
+        """
+        Read refresh from HttpOnly cookie, rotate & blacklist, return new access in JSON,
+        set new refresh cookie. Requires CSRF in prod (FE must send X-CSRFToken).
+        """
+        cookie_name = getattr(settings, "REFRESH_COOKIE_NAME", "ahara_rt")
+        raw_refresh = request.COOKIES.get(cookie_name)
+        if not raw_refresh:
+            raise AuthenticationFailed("No refresh cookie present.")
+
+        try:
+            old_refresh = RefreshToken(raw_refresh)
+        except TokenError:
+            raise AuthenticationFailed("Invalid refresh token.")
+
+        user_id = old_refresh.get("user_id")
+        try:
+            user = User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            raise AuthenticationFailed("User no longer exists.")
+
+        # Rotate refresh & issue new access
+        new_refresh = RefreshToken.for_user(user)
+        new_access = new_refresh.access_token
+
+        # Blacklist the old refresh (requires token_blacklist app)
+        try:
+            old_refresh.blacklist()
+        except Exception:
+            pass
+
+        resp = api_response(
+            request,
+            data={"access": str(new_access)},
+            status_code=status.HTTP_200_OK,
+            message="Token refreshed",
+        )
+        _set_refresh_cookie(resp, new_refresh)
+        return resp
+
+    @action(detail=False, methods=["post"], url_path="logout", url_name="logout")
+    def logout(self, request, *args, **kwargs):
+        """
+        Blacklist current refresh (if present) and clear cookie.
+        """
+        cookie_name = getattr(settings, "REFRESH_COOKIE_NAME", "ahara_rt")
+        raw_refresh = request.COOKIES.get(cookie_name)
+
+        resp = api_response(
+            request,
+            data={"ok": True},
+            status_code=status.HTTP_200_OK,
+            message="Logged out",
+        )
+        if raw_refresh:
+            try:
+                RefreshToken(raw_refresh).blacklist()
+            except Exception:
+                pass
+        _clear_refresh_cookie(resp)
+        return resp
