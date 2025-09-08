@@ -3,16 +3,20 @@
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import ensure_csrf_cookie
 
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from utilities.response import api_response
+from utilities.cookies import _set_refresh_cookie, _clear_refresh_cookie
 
 from .api_utils.throtles import (
     SignupThrottle,
@@ -28,8 +32,6 @@ from .serializers import (
     VerifyOtpSerializer,
 )
 from .models import Otp
-from utilities.cookies import _set_refresh_cookie, _clear_refresh_cookie
-
 ''' <-------------------------------------- IMPORTS FINISH --------------------------------------> '''
 
 User = get_user_model()
@@ -38,6 +40,8 @@ User = get_user_model()
 class AuthViewSet(viewsets.GenericViewSet):
     """
     Auth ViewSet with per-action serializer/permission/auth/throttle maps.
+    Access token -> returned in JSON (FE stores in memory).
+    Refresh token -> HttpOnly cookie (server-set), rotated on /refresh, blacklisted on logout.
     """
     queryset = User._default_manager.all()
 
@@ -53,7 +57,7 @@ class AuthViewSet(viewsets.GenericViewSet):
         "login": LoginSerializer,
         "me": UserDetailSerializer,
         "verify_otp": VerifyOtpSerializer,
-        # "refresh" uses cookie only -> no serializer
+        # "refresh" and "csrf" are cookie-based/public -> no serializer
     }
     permission_action_classes = {
         "register": [AllowAny],
@@ -62,21 +66,23 @@ class AuthViewSet(viewsets.GenericViewSet):
         "verify_otp": [AllowAny],
         "refresh": [AllowAny],
         "logout": [AllowAny],
+        "csrf": [AllowAny],
     }
     authentication_action_classes = {
-        "register": [],            # open endpoint
-        "login": [],               # open endpoint
-        "me": [JWTAuthentication],
-        "verify_otp": [],          # open endpoint
-        "refresh": [],             # cookie-based, not access-based
-        "logout": [],              # cookie-based
+        "register": [],             # open endpoint
+        "login": [],                # open endpoint
+        "me": [JWTAuthentication],  # bearer access required
+        "verify_otp": [],           # open endpoint
+        "refresh": [],              # cookie-based, not access-based
+        "logout": [],               # cookie-based
+        "csrf": [],                 # public
     }
     throttle_action_classes = {
         "register": [SignupThrottle],
         "login": [LoginIPThrottle, LoginUserThrottle],
         "me": [],
         "verify_otp": [VerifyOtpIPThrottle, VerifyOtpUserThrottle],
-        # optional: add a small throttle on refresh if you like
+        # You may add a small throttle for "refresh" if desired
         # "refresh": [SomeRefreshThrottle],
     }
 
@@ -109,6 +115,19 @@ class AuthViewSet(viewsets.GenericViewSet):
         return [cls() for cls in classes]
 
     # -------------------- Actions --------------------
+    @action(detail=False, methods=["get"], url_path="csrf", url_name="csrf")
+    @method_decorator(ensure_csrf_cookie)
+    def csrf(self, request, *args, **kwargs):
+        """
+        Public endpoint used by the FE to seed the csrftoken cookie.
+        """
+        return api_response(
+            request,
+            data={"ok": True},
+            status_code=status.HTTP_200_OK,
+            message="CSRF cookie set",
+        )
+
     @action(detail=False, methods=["post"], url_path="register", url_name="register")
     @transaction.atomic
     def register(self, request, *args, **kwargs):
