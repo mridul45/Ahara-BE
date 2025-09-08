@@ -5,6 +5,7 @@ from datetime import timedelta
 from pathlib import Path
 import os
 from urllib.parse import urlparse
+from corsheaders.defaults import default_headers
 
 import environ
 
@@ -152,6 +153,10 @@ if "https://mridul45.github.io" not in CSRF_TRUSTED_ORIGINS:
 
 if "http://localhost:5173" not in CSRF_TRUSTED_ORIGINS:
     CSRF_TRUSTED_ORIGINS.append("http://localhost:5173")
+
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    "x-csrftoken",
+]
 
 # -------------------- Static / Media --------------------
 STATIC_ROOT = str(BASE_DIR / "staticfiles")

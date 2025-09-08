@@ -18,6 +18,8 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from utilities.response import api_response
 from utilities.cookies import _set_refresh_cookie, _clear_refresh_cookie
 
+from django.middleware.csrf import get_token
+
 from .api_utils.throtles import (
     SignupThrottle,
     LoginIPThrottle,
@@ -119,11 +121,13 @@ class AuthViewSet(viewsets.GenericViewSet):
     @method_decorator(ensure_csrf_cookie)
     def csrf(self, request, *args, **kwargs):
         """
-        Public endpoint used by the FE to seed the csrftoken cookie.
+        Public endpoint used by the FE to seed the csrftoken cookie AND to return
+        the token value so the FE can send it in X-CSRFToken for cross-site POSTs.
         """
+        token = get_token(request)  # <— NEW
         return api_response(
             request,
-            data={"ok": True},
+            data={"ok": True, "csrfToken": token},  # <— include token
             status_code=status.HTTP_200_OK,
             message="CSRF cookie set",
         )
