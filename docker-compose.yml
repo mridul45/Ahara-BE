@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    environment:
+      - POSTGRES_DB=ahara
+      - POSTGRES_USER=ahara
+      - POSTGRES_PASSWORD=your_postgres_password # Please replace with a strong password
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+
+  web:
+    build: .
+    command: /app/docker-entrypoint.sh
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.production
+      - DATABASE_URL=postgres://ahara:your_postgres_password@db:5432/ahara # Make sure the password matches the one for the db service
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=your_django_secret_key # Please replace with a strong secret key
+      - DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
+      - DB_HOST=db
+      - DB_PORT=5432
+      # Add other environment variables required by your application
+      # For example, for AWS S3 storage:
+      - DJANGO_AWS_ACCESS_KEY_ID=your_aws_access_key_id
+      - DJANGO_AWS_SECRET_ACCESS_KEY=your_aws_secret_access_key
+      - DJANGO_AWS_STORAGE_BUCKET_NAME=your_aws_storage_bucket_name
+      # For Mailgun:
+      - MAILGUN_API_KEY=your_mailgun_api_key
+      - MAILGUN_DOMAIN=your_mailgun_domain
+      - DJANGO_ADMIN_URL=admin/
+    depends_on:
+      - db
+      - redis
+
+volumes:
+  postgres_data:

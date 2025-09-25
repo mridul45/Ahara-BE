@@ -20,6 +20,7 @@
 - [Deployment](#deployment)
 - [Contributing](#contributing)
 - [License](#license)
+- [API Documentation](#api-documentation)
 
 ---
 
@@ -146,3 +147,81 @@ Please read `CONTRIBUTING.md` for details on our code of conduct, and the proces
 ## License
 
 Distributed under the MIT License. See `LICENSE` for more information.
+
+## API Documentation
+
+### Content API (`/api/content/`)
+
+The Content API is handled by the `ContentViewSet` located in `ahara/apps/content/views.py`. This viewset provides endpoints for managing content, specifically playlists.
+
+**`ContentViewSet`**
+
+This viewset uses a flexible, per-action configuration for serializers, permissions, authentication, throttling, and querysets. This allows for fine-grained control over each endpoint's behavior.
+
+**Endpoints**
+
+*   **List Playlists**
+    *   **URL:** `/api/content/playlist/`
+    *   **Method:** `GET`
+    *   **Description:** Retrieves a list of all playlists, ordered by the most recently updated.
+    *   **Permissions:** `AllowAny`
+    *   **Success Response (200 OK):**
+        ```json
+        {
+            "items": [
+                {
+                    "id": 1,
+                    "title": "My Awesome Playlist",
+                    "description": "A collection of great content.",
+                    "created_at": "2025-09-17T10:00:00Z",
+                    "updated_at": "2025-09-17T10:00:00Z"
+                }
+            ],
+            "count": 1
+        }
+        ```
+
+*   **Create Playlist**
+    *   **URL:** `/api/content/playlist-create/`
+    *   **Method:** `POST`
+    *   **Description:** Creates a new playlist.
+    *   **Permissions:** `AllowAny`
+    *   **Body:**
+        ```json
+        {
+            "title": "New Playlist",
+            "description": "Another great playlist."
+        }
+        ```
+    *   **Success Response (201 Created):**
+        ```json
+        {
+            "id": 2,
+            "title": "New Playlist",
+            "description": "Another great playlist.",
+            "created_at": "2025-09-17T11:00:00Z",
+            "updated_at": "2025-09-17T11:00:00Z"
+        }
+        ```
+
+*   **Retrieve Playlist**
+    *   **URL:** `/api/content/playlist/<id>/`
+    *   **Method:** `GET`
+    *   **Description:** Retrieves a single playlist by its ID.
+    *   **Permissions:** `AllowAny`
+    *   **Success Response (200 OK):**
+        ```json
+        {
+            "id": 1,
+            "title": "My Awesome Playlist",
+            "description": "A collection of great content.",
+            "created_at": "2025-09-17T10:00:00Z",
+            "updated_at": "2025-09-17T10:00:00Z"
+        }
+        ```
+    *   **Error Response (404 Not Found):**
+        ```json
+        {
+            "detail": "Playlist not found"
+        }
+        ```
