@@ -1,0 +1,39 @@
+# Git
+.git
+.gitignore
+
+# Docker
+.dockerignore
+Dockerfile
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.python-version
+pip-wheel-metadata/
+.venv
+env/
+venv/
+
+# IDE
+.idea/
+.vscode/
+
+# Local settings
+*.local.yml
+
+# Local database
+*.sqlite3
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+
+# Tests
+.pytest_cache/
+.coverage
+htmlcov/

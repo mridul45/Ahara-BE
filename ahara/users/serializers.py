@@ -155,3 +155,37 @@ class VerifyOtpSerializer(serializers.Serializer):
         attrs["user"] = user
         attrs["otp_instance"] = otp_instance
         return attrs
+    
+
+class UserUpdateSerializer(serializers.ModelSerializer):
+    # Allow avatar upload via multipart/form-data
+    avatar = serializers.ImageField(required=False, allow_null=True)
+
+    class Meta:
+        model = User
+        fields = [
+            "username",
+            "first_name",
+            "last_name",
+            "bio",
+            "gender",
+            "city",
+            "state",
+            "country",
+            "birth_date",
+            "avatar",
+        ]
+        extra_kwargs = {
+            "username": {"required": False, "allow_null": True, "allow_blank": True},
+            "birth_date": {"required": False},
+        }
+
+    def validate_username(self, value):
+        if not value:
+            return value
+        qs = User.objects.filter(username=value)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError("This username is already taken.")
+        return value

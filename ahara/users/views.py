@@ -10,7 +10,6 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework.response import Response
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -32,6 +31,7 @@ from .serializers import (
     UserCredsSerializer,
     UserDetailSerializer,
     VerifyOtpSerializer,
+    UserUpdateSerializer,
 )
 from .models import Otp
 ''' <-------------------------------------- IMPORTS FINISH --------------------------------------> '''
@@ -186,20 +186,31 @@ class AuthViewSet(viewsets.GenericViewSet):
         )
         _set_refresh_cookie(resp, refresh)
         return resp
+    
 
-    @action(detail=False, methods=["get"], url_path="me", url_name="me")
+    @action(detail=False, methods=["get", "patch"], url_path="me", url_name="me")
     def me(self, request, *args, **kwargs):
         """
-        Requires: Authorization: Bearer <access-token>
-        Returns authenticated user's profile data.
+        GET   -> return current user's profile
+        PATCH -> partial update (username, name, bio, location, birth_date, avatar, etc.)
         """
-        ser = self.get_serializer(request.user, context={"request": request})
-        return api_response(
-            request,
-            data=ser.data,
-            status_code=status.HTTP_200_OK,
-            message="Current user",
+        if request.method == "GET":
+            ser = UserDetailSerializer(request.user, context={"request": request})
+            return api_response(request, data=ser.data, status_code=status.HTTP_200_OK, message="Current user")
+
+        # PATCH
+        ser = UserUpdateSerializer(
+            instance=request.user,
+            data=request.data,
+            partial=True,
+            context={"request": request},
         )
+        ser.is_valid(raise_exception=True)
+        user = ser.save()
+
+        out = UserDetailSerializer(user, context={"request": request}).data
+        return api_response(request, data=out, status_code=status.HTTP_200_OK, message="Profile updated")
+
 
     @action(detail=False, methods=["post"], url_path="verify-otp", url_name="verify_otp")
     @transaction.atomic
