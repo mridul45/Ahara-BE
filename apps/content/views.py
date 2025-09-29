@@ -1,5 +1,4 @@
 from django.utils import timezone
-from django.shortcuts import render
 from rest_framework import viewsets,status
 from .models import (
     Playlist
@@ -12,6 +11,12 @@ from .serializers import (
 from rest_framework.permissions import IsAuthenticated,AllowAny
 from utilities.response import api_response
 from rest_framework.decorators import action
+from django.conf import settings
+from django.core.cache import cache
+import hashlib
+import json
+
+
 # Create your views here.
 
 
@@ -41,6 +46,7 @@ class ContentViewSet(viewsets.GenericViewSet):
         "playlist_rate": PlaylistReadSerializer,
         "playlist_ratings_reset": PlaylistReadSerializer,
         "playlist_impressions_reset": PlaylistReadSerializer,
+        "featured_playlists": PlaylistReadSerializer,
         # "featured_playlists": PlaylistReadSerializer,
         # "recent_playlists": PlaylistReadSerializer,
     }
@@ -54,6 +60,7 @@ class ContentViewSet(viewsets.GenericViewSet):
         "playlist_rate": [AllowAny],
         "playlist_ratings_reset": [AllowAny],
         "playlist_impressions_reset": [AllowAny],
+        "featured_playlists": [AllowAny],
         # "featured_playlists": [AllowAny],
         # "recent_playlists": [AllowAny],
     }
@@ -67,8 +74,7 @@ class ContentViewSet(viewsets.GenericViewSet):
         "playlist_rate": [],
         "playlist_ratings_reset": [],
         "playlist_impressions_reset": [],
-        # "featured_playlists": [],
-        # "recent_playlists": [],
+        "featured_playlists": [],
     }
     throttle_action_classes = {
         "playlist": [],
@@ -80,6 +86,7 @@ class ContentViewSet(viewsets.GenericViewSet):
         "playlist_rate": [],
         "playlist_ratings_reset": [],
         "playlist_impressions_reset": [],
+        "featured_playlists": [],
         # "featured_playlists": [],
         # "recent_playlists": [],
     }
@@ -419,3 +426,60 @@ class ContentViewSet(viewsets.GenericViewSet):
                 "ctr": float(obj.ctr),
             },
         )
+
+
+    @action(
+    detail=False,
+    methods=["get"],
+    url_path=r"playlist/featured",
+    url_name="featured_playlists",
+    )
+    def featured_playlists(self, request, *args, **kwargs):
+        """
+        GET /content/playlist/featured/
+        Returns 4 featured playlists ONLY if present in Redis.
+
+        If the cache key is missing, DO NOT compute/write.
+        Respond with a clear message via api_response.
+        """
+        blob = cache.get(settings.FEATURED_KEY)
+
+        # ❌ Not present in cache → tell the client explicitly (no compute)
+        if not blob:
+            return api_response(
+                request,
+                data={"items": []},
+                status_code=status.HTTP_404_NOT_FOUND,
+                message="Featured playlists not present in cache",
+            )
+
+        # ✅ Present in cache → return payload with ETag + Cache-Control
+        payload = {"data": blob}
+
+        try:
+            etag = hashlib.md5(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+            if request.headers.get("If-None-Match") == etag:
+                resp = api_response(
+                    request,
+                    data=None,
+                    status_code=status.HTTP_304_NOT_MODIFIED,
+                    message="Not Modified",
+                )
+            else:
+                resp = api_response(
+                    request,
+                    data=payload["data"],
+                    status_code=status.HTTP_200_OK,
+                    message="Featured playlists fetched successfully",
+                )
+                resp["ETag"] = etag
+        except Exception:
+            resp = api_response(
+                request,
+                data=payload["data"],
+                status_code=status.HTTP_200_OK,
+                message="Featured playlists fetched successfully",
+            )
+
+        resp["Cache-Control"] = "public, max-age=300, stale-while-revalidate=120"
+        return resp
