@@ -6,8 +6,10 @@ from pathlib import Path
 import os
 from urllib.parse import urlparse
 from corsheaders.defaults import default_headers
-
+import certifi
 import environ
+import ssl
+
 
 BASE_DIR = Path(__file__).resolve(strict=True).parent.parent.parent
 APPS_DIR = BASE_DIR / "ahara"
@@ -222,6 +224,23 @@ LOGGING = {
     "root": {"level": "INFO", "handlers": ["console"]},
 }
 
+
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        # Note the scheme is now "redis://"
+        "LOCATION": "redis://default:Xu15rsSQ5lIVxPjerDM516Cb2N0oLXrQ@redis-13531.crce217.ap-south-1-1.ec2.redns.redis-cloud.com:13531/0",
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "SERIALIZER": "django_redis.serializers.json.JSONSerializer",
+            # Connection parameters are lowercase
+            "ssl": True,
+            "ssl_cert_reqs": "required", # Good practice for security
+        },
+        "KEY_PREFIX": "ahara", 
+    }
+}
+
 # -------------------- Redis --------------------
 REDIS_URL = env("REDIS_URL", default="redis://localhost:6379/0")
 REDIS_SSL = REDIS_URL.startswith("rediss://")
@@ -285,3 +304,7 @@ REFRESH_COOKIE_KWARGS = {
 IMAGEKIT_PUBLIC_KEY = env("IMAGEKIT_PUBLIC_KEY")
 IMAGEKIT_PRIVATE_KEY = env("IMAGEKIT_PRIVATE_KEY")
 IMAGEKIT_URL_ENDPOINT = env("IMAGEKIT_URL_ENDPOINT")
+
+
+FEATURED_KEY = env("FEATURED_KEY", default="ahara:pl:featured:v1:default")
+FEATURED_TTL = env.int("FEATURED_TTL", default=60 * 60 * 6)

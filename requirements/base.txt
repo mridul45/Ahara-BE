@@ -79,6 +79,7 @@ prompt_toolkit==3.0.51
 psycopg==3.2.9
 psycopg-binary==3.2.9
 psycopg-c==3.2.9
+psycopg2-binary==2.9.10
 ptyprocess==0.7.0
 pure_eval==0.2.3
 pycparser==2.22
