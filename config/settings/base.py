@@ -159,6 +159,8 @@ if "http://localhost:5173" not in CSRF_TRUSTED_ORIGINS:
 
 CORS_ALLOW_HEADERS = list(default_headers) + [
     "x-csrftoken",
+    "if-none-match",
+    "if-modified-since",
 ]
 
 # -------------------- Static / Media --------------------

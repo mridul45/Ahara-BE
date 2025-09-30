@@ -15,7 +15,11 @@ from django.conf import settings
 from django.core.cache import cache
 import hashlib
 import json
+import re
 
+
+
+ETAG_SPLIT_RE = re.compile(r'\s*,\s*')
 
 # Create your views here.
 
@@ -428,11 +432,12 @@ class ContentViewSet(viewsets.GenericViewSet):
         )
 
 
+
     @action(
-    detail=False,
-    methods=["get"],
-    url_path=r"playlist/featured",
-    url_name="featured_playlists",
+        detail=False,
+        methods=["get"],
+        url_path=r"playlist/featured",
+        url_name="featured_playlists",
     )
     def featured_playlists(self, request, *args, **kwargs):
         """
@@ -440,46 +445,63 @@ class ContentViewSet(viewsets.GenericViewSet):
         Returns 4 featured playlists ONLY if present in Redis.
 
         If the cache key is missing, DO NOT compute/write.
-        Respond with a clear message via api_response.
         """
         blob = cache.get(settings.FEATURED_KEY)
 
-        # ❌ Not present in cache → tell the client explicitly (no compute)
+        # ❌ Not present in cache → pick ONE behavior:
         if not blob:
-            return api_response(
+            # (A) Keep your current 404 behavior:
+            resp = api_response(
                 request,
                 data={"items": []},
                 status_code=status.HTTP_404_NOT_FOUND,
                 message="Featured playlists not present in cache",
             )
+            resp["Cache-Control"] = "public, max-age=60, stale-while-revalidate=60"
+            # If cross-origin: make sure CORS_EXPOSE_HEADERS includes ETag (settings.py)
+            return resp
 
-        # ✅ Present in cache → return payload with ETag + Cache-Control
+            # (B) Or, prefer 200 empty to avoid FE error states:
+            # resp = api_response(request, data={"items": []}, status_code=status.HTTP_200_OK,
+            #                     message="Featured playlists not present in cache")
+            # resp["Cache-Control"] = "public, max-age=60, stale-while-revalidate=60"
+            # resp["ETag"] = 'W/"featured:empty"'
+            # return resp
+
+        # ✅ Present in cache
         payload = {"data": blob}
 
-        try:
-            etag = hashlib.md5(json.dumps(payload, sort_keys=True).encode()).hexdigest()
-            if request.headers.get("If-None-Match") == etag:
-                resp = api_response(
-                    request,
-                    data=None,
-                    status_code=status.HTTP_304_NOT_MODIFIED,
-                    message="Not Modified",
-                )
-            else:
-                resp = api_response(
-                    request,
-                    data=payload["data"],
-                    status_code=status.HTTP_200_OK,
-                    message="Featured playlists fetched successfully",
-                )
-                resp["ETag"] = etag
-        except Exception:
+        # Compute a stable (weak) ETag over the JSON payload
+        raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        etag_value = hashlib.md5(raw).hexdigest()
+        etag_quoted = f'W/"{etag_value}"'  # weak is fine for list resources
+
+        # Parse If-None-Match, which can be a list: ETag, "ETag", W/"ETag", etc.
+        inm = request.headers.get("If-None-Match", "")
+        candidates = [t.strip() for t in ETAG_SPLIT_RE.split(inm) if t.strip()]
+        candidates_normalized = {t.strip('W/w"') for t in candidates}  # remove quotes + leading W/
+        current_normalized = etag_value
+
+        if current_normalized in candidates_normalized or etag_quoted in candidates:
+            # 304 Not Modified (no body)
             resp = api_response(
                 request,
-                data=payload["data"],
-                status_code=status.HTTP_200_OK,
-                message="Featured playlists fetched successfully",
+                data=None,
+                status_code=status.HTTP_304_NOT_MODIFIED,
+                message="Not Modified",
             )
+            # Send ETag on 304 as well (good practice)
+            resp["ETag"] = etag_quoted
+            resp["Cache-Control"] = "public, max-age=300, stale-while-revalidate=120"
+            return resp
 
+        # 200 with body
+        resp = api_response(
+            request,
+            data=payload["data"],
+            status_code=status.HTTP_200_OK,
+            message="Featured playlists fetched successfully",
+        )
+        resp["ETag"] = etag_quoted
         resp["Cache-Control"] = "public, max-age=300, stale-while-revalidate=120"
         return resp
