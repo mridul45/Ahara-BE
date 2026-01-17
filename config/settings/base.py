@@ -231,7 +231,7 @@ CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
         # Note the scheme is now "redis://"
-        "LOCATION": "redis://default:Xu15rsSQ5lIVxPjerDM516Cb2N0oLXrQ@redis-13531.crce217.ap-south-1-1.ec2.redns.redis-cloud.com:13531/0",
+        "LOCATION": "redis://default:cNW1X7M0LKV7pjZcZODbJ09gRSLgC1v6@redis-10090.crce206.ap-south-1-1.ec2.cloud.redislabs.com:10090/0",
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
             "SERIALIZER": "django_redis.serializers.json.JSONSerializer",

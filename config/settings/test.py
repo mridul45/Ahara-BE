@@ -34,5 +34,24 @@ TEMPLATES[0]["OPTIONS"]["debug"] = True  # type: ignore[index]
 # ------------------------------------------------------------------------------
 # https://docs.djangoproject.com/en/dev/ref/settings/#media-url
 MEDIA_URL = "http://media.testserver/"
+
+# -------------------- DRF Throttling --------------------
+# Disable throttling for tests
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": (
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+    ),
+    "DEFAULT_THROTTLE_CLASSES": [],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": None,
+        "user": None,
+        "signup": None,
+        "login": None,
+        "login_user": None,
+        "verify_otp": None,
+        "verify_otp_user": None,
+    },
+    "EXCEPTION_HANDLER": "utilities.response.unified_exception_handler",
+}
 # Your stuff...
 # ------------------------------------------------------------------------------
