@@ -102,6 +102,7 @@ THIRD_PARTY_APPS = [
 LOCAL_APPS = [
     "ahara.users",
     "apps.content",
+    "apps.intelligence",
 ]
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
@@ -231,7 +232,7 @@ CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
         # Note the scheme is now "redis://"
-        "LOCATION": "redis://default:cNW1X7M0LKV7pjZcZODbJ09gRSLgC1v6@redis-10090.crce206.ap-south-1-1.ec2.cloud.redislabs.com:10090/0",
+        "LOCATION": "redis://default:ZdenAdAKhMnYTRGJHqZWEtWYfmsWyR4v@redis-16980.c305.ap-south-1-1.ec2.cloud.redislabs.com:16980/0",
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
             "SERIALIZER": "django_redis.serializers.json.JSONSerializer",
@@ -296,11 +297,15 @@ SIMPLE_JWT = {
 REFRESH_COOKIE_NAME = "ahara_rt"
 REFRESH_COOKIE_KWARGS = {
     "httponly": True,
-    # Cross-site requires Secure=True + SameSite=None (GitHub Pages ↔ Render)
-    "secure": True if (IS_PROD or CROSS_SITE_COOKIES) else False,
-    "samesite": "None" if CROSS_SITE_COOKIES else ("Strict" if IS_PROD else "Lax"),
     "path": "/",
+    # Industry standard: Only require HTTPS if not in DEBUG mode
+    "secure": not DEBUG, 
+    # Lax is the standard for same-site local development
+    "samesite": "Lax" if DEBUG else "None", 
 }
+
+CSRF_COOKIE_SECURE = not DEBUG
+SESSION_COOKIE_SECURE = not DEBUG
 
 # -------------------- Your stuff --------------------
 IMAGEKIT_PUBLIC_KEY = env("IMAGEKIT_PUBLIC_KEY")
@@ -310,3 +315,5 @@ IMAGEKIT_URL_ENDPOINT = env("IMAGEKIT_URL_ENDPOINT")
 
 FEATURED_KEY = env("FEATURED_KEY", default="ahara:pl:featured:v1:default")
 FEATURED_TTL = env.int("FEATURED_TTL", default=60 * 60 * 6)
+
+GEMINI_API_KEY = env("GEMINI_API_KEY", default="YOUR API KEY HERE....")

@@ -1,1 +1,0 @@
-# Tests removed as they rely on template views not present in this DRF-based project.
