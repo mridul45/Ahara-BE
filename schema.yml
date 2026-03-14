@@ -1,0 +1,1282 @@
+openapi: 3.0.3
+info:
+  title: Ahara API
+  version: 1.0.0
+  description: Ahara Backend API Documentation
+paths:
+  /api/content/playlist/:
+    get:
+      operationId: api_content_playlist_retrieve
+      description: |-
+        GET /content/playlist/
+        Returns all playlists.
+      tags:
+      - content
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistRead'
+          description: ''
+  /api/content/playlist-create/:
+    post:
+      operationId: api_content_playlist_create_create
+      description: POST /content/playlist-create/ → create new playlist (auth required).
+      tags:
+      - content
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaylistWrite'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PlaylistWrite'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PlaylistWrite'
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistWrite'
+          description: ''
+  /api/content/playlist/{id}/:
+    get:
+      operationId: api_content_playlist_retrieve_2
+      description: |-
+        Content ViewSet with per-action maps for:
+          - serializer
+          - permissions
+          - authentication
+          - throttles
+          - queryset (via callables so it can depend on request if needed)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - content
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistRead'
+          description: ''
+  /api/content/playlist/{id}/click/:
+    post:
+      operationId: api_content_playlist_click_create
+      description: |-
+        POST /content/playlist/<id>/click
+        Increments click counter for a playlist.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - content
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaylistRead'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PlaylistRead'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PlaylistRead'
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistRead'
+          description: ''
+  /api/content/playlist/{id}/impressions/reset/:
+    get:
+      operationId: api_content_playlist_impressions_reset_retrieve
+      description: |-
+        POST /content/playlist/<id>/impressions/reset
+        Resets impressions counter and related fields for a playlist.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - content
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistRead'
+          description: ''
+  /api/content/playlist/{id}/rate/:
+    post:
+      operationId: api_content_playlist_rate_create
+      description: |-
+        POST /content/playlist/<id>/rate
+        Body: { "stars": 1..5 }
+        Adds a rating to rating_count/rating_sum (no per-user uniqueness).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - content
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaylistRead'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PlaylistRead'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PlaylistRead'
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistRead'
+          description: ''
+  /api/content/playlist/{id}/ratings/reset/:
+    get:
+      operationId: api_content_playlist_ratings_reset_retrieve
+      description: |-
+        Content ViewSet with per-action maps for:
+          - serializer
+          - permissions
+          - authentication
+          - throttles
+          - queryset (via callables so it can depend on request if needed)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - content
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistRead'
+          description: ''
+  /api/content/playlist/featured/:
+    get:
+      operationId: api_content_playlist_featured_retrieve
+      description: |-
+        GET /content/playlist/featured/
+        Returns 4 featured playlists ONLY if present in Redis.
+
+        If the cache key is missing, DO NOT compute/write.
+      tags:
+      - content
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistRead'
+          description: ''
+  /api/content/playlist_delete/{id}/:
+    delete:
+      operationId: api_content_playlist_delete_destroy
+      description: |-
+        DELETE /api/content/playlist/<id>
+        Deletes a playlist by primary key.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - content
+      security:
+      - {}
+      responses:
+        '204':
+          description: No response body
+  /api/intelligence/ask/:
+    post:
+      operationId: api_intelligence_ask_create
+      description: |-
+        POST /api/intelligence/ask/
+
+        Body:
+        {
+            "prompt": "your question",
+            "think": true | false
+        }
+      tags:
+      - intelligence
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AskGemini'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AskGemini'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AskGemini'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AskGemini'
+          description: ''
+  /users/auth/csrf/:
+    get:
+      operationId: users_auth_csrf_retrieve
+      description: |-
+        Public endpoint used by the FE to seed the csrftoken cookie AND to return
+        the token value so the FE can send it in X-CSRFToken for cross-site POSTs.
+      tags:
+      - users
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserCreds'
+          description: ''
+  /users/auth/login/:
+    post:
+      operationId: users_auth_login_create
+      description: |-
+        Body: {"email": "...", "password": "..."}
+        Validates credentials, returns access in JSON, sets refresh in HttpOnly cookie.
+      tags:
+      - users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Login'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Login'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Login'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Login'
+          description: ''
+  /users/auth/logout/:
+    post:
+      operationId: users_auth_logout_create
+      description: Blacklist current refresh (if present) and clear cookie.
+      tags:
+      - users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreds'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserCreds'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserCreds'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserCreds'
+          description: ''
+  /users/auth/me/:
+    get:
+      operationId: users_auth_me_retrieve
+      description: |-
+        GET   -> return current user's profile
+        PATCH -> partial update (username, name, bio, location, birth_date, avatar, etc.)
+      tags:
+      - users
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDetail'
+          description: ''
+    patch:
+      operationId: users_auth_me_partial_update
+      description: |-
+        GET   -> return current user's profile
+        PATCH -> partial update (username, name, bio, location, birth_date, avatar, etc.)
+      tags:
+      - users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUserDetail'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUserDetail'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUserDetail'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDetail'
+          description: ''
+  /users/auth/refresh/:
+    post:
+      operationId: users_auth_refresh_create
+      description: |-
+        Read refresh from HttpOnly cookie, rotate & blacklist, return new access in JSON,
+        set new refresh cookie. Requires CSRF in prod (FE must send X-CSRFToken).
+      tags:
+      - users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreds'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserCreds'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserCreds'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserCreds'
+          description: ''
+  /users/auth/register/:
+    post:
+      operationId: users_auth_register_create
+      description: |-
+        Body: {"email": "...", "password": "..."}
+        Creates the user and sends OTP (no tokens yet).
+      tags:
+      - users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreds'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserCreds'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserCreds'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserCreds'
+          description: ''
+  /users/auth/verify-otp/:
+    post:
+      operationId: users_auth_verify_otp_create
+      description: |-
+        Body: {"email": "...", "otp": 123456}
+        On success:
+          - issues access token in JSON (FE stores in memory)
+          - sets refresh token in HttpOnly cookie (server-set)
+        Entire flow is atomic; OTP row is locked to avoid races.
+      tags:
+      - users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyOtp'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/VerifyOtp'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/VerifyOtp'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifyOtp'
+          description: ''
+components:
+  schemas:
+    AskGemini:
+      type: object
+      properties:
+        prompt:
+          type: string
+        think:
+          type: boolean
+          default: false
+      required:
+      - prompt
+    BlankEnum:
+      enum:
+      - ''
+    GenderEnum:
+      enum:
+      - Male
+      - Female
+      - Other
+      - Prefer not to say
+      type: string
+      description: |-
+        * `Male` - Male
+        * `Female` - Female
+        * `Other` - Other
+        * `Prefer not to say` - Prefer not to say
+    LanguageEnum:
+      enum:
+      - ENGLISH
+      - SPANISH
+      - FRENCH
+      - GERMAN
+      - ITALIAN
+      - PORTUGUESE
+      - RUSSIAN
+      - CHINESE_SIMPLIFIED
+      - CHINESE_TRADITIONAL
+      - JAPANESE
+      - KOREAN
+      - ARABIC
+      - TURKISH
+      - DUTCH
+      - SWEDISH
+      - NORWEGIAN
+      - DANISH
+      - GREEK
+      - HEBREW
+      - POLISH
+      - UKRAINIAN
+      - THAI
+      - VIETNAMESE
+      - INDONESIAN
+      - MALAY
+      - FILIPINO
+      - HINDI
+      - BENGALI
+      - PUNJABI
+      - MARATHI
+      - GUJARATI
+      - TAMIL
+      - TELUGU
+      - KANNADA
+      - MALAYALAM
+      - ODIA
+      - ASSAMESE
+      - URDU
+      - SANSKRIT
+      type: string
+      description: |-
+        * `ENGLISH` - English
+        * `SPANISH` - Spanish
+        * `FRENCH` - French
+        * `GERMAN` - German
+        * `ITALIAN` - Italian
+        * `PORTUGUESE` - Portuguese
+        * `RUSSIAN` - Russian
+        * `CHINESE_SIMPLIFIED` - Chinese (Simplified)
+        * `CHINESE_TRADITIONAL` - Chinese (Traditional)
+        * `JAPANESE` - Japanese
+        * `KOREAN` - Korean
+        * `ARABIC` - Arabic
+        * `TURKISH` - Turkish
+        * `DUTCH` - Dutch
+        * `SWEDISH` - Swedish
+        * `NORWEGIAN` - Norwegian
+        * `DANISH` - Danish
+        * `GREEK` - Greek
+        * `HEBREW` - Hebrew
+        * `POLISH` - Polish
+        * `UKRAINIAN` - Ukrainian
+        * `THAI` - Thai
+        * `VIETNAMESE` - Vietnamese
+        * `INDONESIAN` - Indonesian
+        * `MALAY` - Malay
+        * `FILIPINO` - Filipino
+        * `HINDI` - Hindi
+        * `BENGALI` - Bengali
+        * `PUNJABI` - Punjabi
+        * `MARATHI` - Marathi
+        * `GUJARATI` - Gujarati
+        * `TAMIL` - Tamil
+        * `TELUGU` - Telugu
+        * `KANNADA` - Kannada
+        * `MALAYALAM` - Malayalam
+        * `ODIA` - Odia
+        * `ASSAMESE` - Assamese
+        * `URDU` - Urdu
+        * `SANSKRIT` - Sanskrit
+    Login:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          writeOnly: true
+      required:
+      - email
+      - password
+    NullEnum:
+      enum:
+      - null
+    PatchedUserDetail:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+          readOnly: true
+          nullable: true
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+        email:
+          type: string
+          format: email
+          readOnly: true
+        first_name:
+          type: string
+          readOnly: true
+        last_name:
+          type: string
+          readOnly: true
+        bio:
+          type: string
+          readOnly: true
+          nullable: true
+          title: Biography
+        gender:
+          readOnly: true
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/GenderEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        city:
+          type: string
+          readOnly: true
+          nullable: true
+          title: City of Residence
+        state:
+          readOnly: true
+          nullable: true
+          title: Current State
+          oneOf:
+          - $ref: '#/components/schemas/StateEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        country:
+          type: string
+          readOnly: true
+          nullable: true
+          title: Country of Residence
+        birth_date:
+          type: string
+          format: date
+          readOnly: true
+          nullable: true
+        date_joined:
+          type: string
+          format: date-time
+          readOnly: true
+        is_active:
+          type: boolean
+          readOnly: true
+        avatar_url:
+          type: string
+          readOnly: true
+    PlaylistRead:
+      type: object
+      description: |-
+        Read-only serializer for Playlist model (GET endpoints).
+        Includes denormalized analytics counters + safe, human-friendly computed fields.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          readOnly: true
+          nullable: true
+          description: Display name for this playlist (shown to users).
+        description:
+          type: string
+          readOnly: true
+          nullable: true
+          description: Short summary shown in the app or SEO snippets.
+        playlist_type:
+          readOnly: true
+          nullable: true
+          description: |-
+            Select the category/genre of this playlist.
+
+            * `MEDITATION_SERIES` - Meditation Series
+            * `BREATHWORK_SERIES` - Breathwork Series
+            * `MINDFULNESS` - Mindfulness Practices
+            * `ZEN_MODE` - Zen Mode Exclusives
+            * `SLEEP_WELLNESS` - Sleep & Relaxation
+            * `STRESS_RELIEF` - Stress Relief
+            * `WEIGHT_MANAGEMENT` - Weight Management
+            * `FLEXIBILITY` - Flexibility & Mobility
+            * `STRENGTH` - Strength Building
+            * `ENERGY_BOOST` - Energy Boost
+            * `FOCUS_CONCENTRATION` - Focus & Concentration
+            * `ANXIETY_RELIEF` - Anxiety Relief
+            * `EMOTIONAL_BALANCE` - Emotional Balance
+            * `DETOX_CLEANSE` - Detox & Cleanse
+            * `IMMUNITY_SUPPORT` - Immunity Support
+            * `DAILY_CHALLENGE` - Daily Challenge
+            * `WEEKLY_PROGRAM` - Weekly Program
+            * `MONTHLY_JOURNEY` - Monthly Journey
+            * `QUICK_SESSIONS` - Quick 5–10 min Sessions
+            * `LONG_FORM_RETREAT` - Long-form Retreat
+            * `PRENATAL` - Prenatal Yoga
+            * `POSTNATAL` - Postnatal Yoga
+            * `KIDS` - Kids Yoga & Mindfulness
+            * `SENIORS` - Senior Wellness
+            * `OFFICE_BREAK` - Office/Workplace Break
+            * `TRAVEL_FRIENDLY` - Travel-Friendly Routines
+            * `TRADITIONAL_HATHA` - Traditional Hatha Yoga
+            * `VINYASA_FLOW` - Vinyasa Flow
+            * `ASHTANGA` - Ashtanga Series
+            * `BHAKTI_DEVOTIONAL` - Bhakti/Devotional
+            * `SUTRAS_MANTRAS` - Sutras & Mantras
+          oneOf:
+          - $ref: '#/components/schemas/PlaylistTypeEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        language:
+          readOnly: true
+          nullable: true
+          description: |-
+            Select the main language of this playlist.
+
+            * `ENGLISH` - English
+            * `SPANISH` - Spanish
+            * `FRENCH` - French
+            * `GERMAN` - German
+            * `ITALIAN` - Italian
+            * `PORTUGUESE` - Portuguese
+            * `RUSSIAN` - Russian
+            * `CHINESE_SIMPLIFIED` - Chinese (Simplified)
+            * `CHINESE_TRADITIONAL` - Chinese (Traditional)
+            * `JAPANESE` - Japanese
+            * `KOREAN` - Korean
+            * `ARABIC` - Arabic
+            * `TURKISH` - Turkish
+            * `DUTCH` - Dutch
+            * `SWEDISH` - Swedish
+            * `NORWEGIAN` - Norwegian
+            * `DANISH` - Danish
+            * `GREEK` - Greek
+            * `HEBREW` - Hebrew
+            * `POLISH` - Polish
+            * `UKRAINIAN` - Ukrainian
+            * `THAI` - Thai
+            * `VIETNAMESE` - Vietnamese
+            * `INDONESIAN` - Indonesian
+            * `MALAY` - Malay
+            * `FILIPINO` - Filipino
+            * `HINDI` - Hindi
+            * `BENGALI` - Bengali
+            * `PUNJABI` - Punjabi
+            * `MARATHI` - Marathi
+            * `GUJARATI` - Gujarati
+            * `TAMIL` - Tamil
+            * `TELUGU` - Telugu
+            * `KANNADA` - Kannada
+            * `MALAYALAM` - Malayalam
+            * `ODIA` - Odia
+            * `ASSAMESE` - Assamese
+            * `URDU` - Urdu
+            * `SANSKRIT` - Sanskrit
+          oneOf:
+          - $ref: '#/components/schemas/LanguageEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        thumbnail:
+          type: string
+          readOnly: true
+        thumbnail_file_id:
+          type: string
+          readOnly: true
+        impressions:
+          type: integer
+          readOnly: true
+          description: Times shown in feeds/search.
+        clicks:
+          type: integer
+          readOnly: true
+          description: Times opened from an impression.
+        starts:
+          type: integer
+          readOnly: true
+          description: First play started (at least 1s).
+        completes:
+          type: integer
+          readOnly: true
+          description: Completed all items or 90% avg.
+        likes:
+          type: integer
+          readOnly: true
+        bookmarks:
+          type: integer
+          readOnly: true
+          description: Saves/‘watch later’.
+        shares:
+          type: integer
+          readOnly: true
+        total_watch_seconds:
+          type: integer
+          readOnly: true
+          description: Sum of watch time across users.
+        avg_watch_seconds:
+          type: number
+          format: double
+          readOnly: true
+          description: Rolling average watch seconds per start.
+        avg_progress_pct:
+          type: number
+          format: double
+          readOnly: true
+          description: Average percent completed across viewers.
+        rating_count:
+          type: integer
+          readOnly: true
+        rating_sum:
+          type: integer
+          readOnly: true
+          description: Sum of 1–5 star ratings for fast avg.
+        last_impressed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        last_clicked_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        last_started_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        last_completed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        last_interaction_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        breakdown:
+          readOnly: true
+          nullable: true
+          description: 'Small cached breakdowns, e.g., {''device'': {''ios'': 120,
+            ''android'': 300}, ''geo'': {...}}'
+        ctr:
+          type: number
+          format: double
+          readOnly: true
+        completion_rate:
+          type: number
+          format: double
+          readOnly: true
+        average_rating:
+          type: number
+          format: double
+          readOnly: true
+        computed_ctr:
+          type: number
+          format: double
+          readOnly: true
+        computed_completion_rate:
+          type: number
+          format: double
+          readOnly: true
+      required:
+      - average_rating
+      - avg_progress_pct
+      - avg_watch_seconds
+      - bookmarks
+      - breakdown
+      - clicks
+      - completes
+      - completion_rate
+      - computed_completion_rate
+      - computed_ctr
+      - created_at
+      - ctr
+      - description
+      - id
+      - impressions
+      - language
+      - last_clicked_at
+      - last_completed_at
+      - last_impressed_at
+      - last_interaction_at
+      - last_started_at
+      - likes
+      - playlist_type
+      - rating_count
+      - rating_sum
+      - shares
+      - starts
+      - thumbnail
+      - thumbnail_file_id
+      - title
+      - total_watch_seconds
+      - updated_at
+    PlaylistTypeEnum:
+      enum:
+      - MEDITATION_SERIES
+      - BREATHWORK_SERIES
+      - MINDFULNESS
+      - ZEN_MODE
+      - SLEEP_WELLNESS
+      - STRESS_RELIEF
+      - WEIGHT_MANAGEMENT
+      - FLEXIBILITY
+      - STRENGTH
+      - ENERGY_BOOST
+      - FOCUS_CONCENTRATION
+      - ANXIETY_RELIEF
+      - EMOTIONAL_BALANCE
+      - DETOX_CLEANSE
+      - IMMUNITY_SUPPORT
+      - DAILY_CHALLENGE
+      - WEEKLY_PROGRAM
+      - MONTHLY_JOURNEY
+      - QUICK_SESSIONS
+      - LONG_FORM_RETREAT
+      - PRENATAL
+      - POSTNATAL
+      - KIDS
+      - SENIORS
+      - OFFICE_BREAK
+      - TRAVEL_FRIENDLY
+      - TRADITIONAL_HATHA
+      - VINYASA_FLOW
+      - ASHTANGA
+      - BHAKTI_DEVOTIONAL
+      - SUTRAS_MANTRAS
+      type: string
+      description: |-
+        * `MEDITATION_SERIES` - Meditation Series
+        * `BREATHWORK_SERIES` - Breathwork Series
+        * `MINDFULNESS` - Mindfulness Practices
+        * `ZEN_MODE` - Zen Mode Exclusives
+        * `SLEEP_WELLNESS` - Sleep & Relaxation
+        * `STRESS_RELIEF` - Stress Relief
+        * `WEIGHT_MANAGEMENT` - Weight Management
+        * `FLEXIBILITY` - Flexibility & Mobility
+        * `STRENGTH` - Strength Building
+        * `ENERGY_BOOST` - Energy Boost
+        * `FOCUS_CONCENTRATION` - Focus & Concentration
+        * `ANXIETY_RELIEF` - Anxiety Relief
+        * `EMOTIONAL_BALANCE` - Emotional Balance
+        * `DETOX_CLEANSE` - Detox & Cleanse
+        * `IMMUNITY_SUPPORT` - Immunity Support
+        * `DAILY_CHALLENGE` - Daily Challenge
+        * `WEEKLY_PROGRAM` - Weekly Program
+        * `MONTHLY_JOURNEY` - Monthly Journey
+        * `QUICK_SESSIONS` - Quick 5–10 min Sessions
+        * `LONG_FORM_RETREAT` - Long-form Retreat
+        * `PRENATAL` - Prenatal Yoga
+        * `POSTNATAL` - Postnatal Yoga
+        * `KIDS` - Kids Yoga & Mindfulness
+        * `SENIORS` - Senior Wellness
+        * `OFFICE_BREAK` - Office/Workplace Break
+        * `TRAVEL_FRIENDLY` - Travel-Friendly Routines
+        * `TRADITIONAL_HATHA` - Traditional Hatha Yoga
+        * `VINYASA_FLOW` - Vinyasa Flow
+        * `ASHTANGA` - Ashtanga Series
+        * `BHAKTI_DEVOTIONAL` - Bhakti/Devotional
+        * `SUTRAS_MANTRAS` - Sutras & Mantras
+    PlaylistWrite:
+      type: object
+      description: |-
+        Write serializer for creating/updating playlists.
+        Accepts multipart image uploads for 'thumbnail'.
+      properties:
+        title:
+          type: string
+          nullable: true
+          description: Display name for this playlist (shown to users).
+          maxLength: 255
+        description:
+          type: string
+          nullable: true
+          description: Short summary shown in the app or SEO snippets.
+        playlist_type:
+          nullable: true
+          description: |-
+            Select the category/genre of this playlist.
+
+            * `MEDITATION_SERIES` - Meditation Series
+            * `BREATHWORK_SERIES` - Breathwork Series
+            * `MINDFULNESS` - Mindfulness Practices
+            * `ZEN_MODE` - Zen Mode Exclusives
+            * `SLEEP_WELLNESS` - Sleep & Relaxation
+            * `STRESS_RELIEF` - Stress Relief
+            * `WEIGHT_MANAGEMENT` - Weight Management
+            * `FLEXIBILITY` - Flexibility & Mobility
+            * `STRENGTH` - Strength Building
+            * `ENERGY_BOOST` - Energy Boost
+            * `FOCUS_CONCENTRATION` - Focus & Concentration
+            * `ANXIETY_RELIEF` - Anxiety Relief
+            * `EMOTIONAL_BALANCE` - Emotional Balance
+            * `DETOX_CLEANSE` - Detox & Cleanse
+            * `IMMUNITY_SUPPORT` - Immunity Support
+            * `DAILY_CHALLENGE` - Daily Challenge
+            * `WEEKLY_PROGRAM` - Weekly Program
+            * `MONTHLY_JOURNEY` - Monthly Journey
+            * `QUICK_SESSIONS` - Quick 5–10 min Sessions
+            * `LONG_FORM_RETREAT` - Long-form Retreat
+            * `PRENATAL` - Prenatal Yoga
+            * `POSTNATAL` - Postnatal Yoga
+            * `KIDS` - Kids Yoga & Mindfulness
+            * `SENIORS` - Senior Wellness
+            * `OFFICE_BREAK` - Office/Workplace Break
+            * `TRAVEL_FRIENDLY` - Travel-Friendly Routines
+            * `TRADITIONAL_HATHA` - Traditional Hatha Yoga
+            * `VINYASA_FLOW` - Vinyasa Flow
+            * `ASHTANGA` - Ashtanga Series
+            * `BHAKTI_DEVOTIONAL` - Bhakti/Devotional
+            * `SUTRAS_MANTRAS` - Sutras & Mantras
+          oneOf:
+          - $ref: '#/components/schemas/PlaylistTypeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        language:
+          nullable: true
+          description: |-
+            Select the main language of this playlist.
+
+            * `ENGLISH` - English
+            * `SPANISH` - Spanish
+            * `FRENCH` - French
+            * `GERMAN` - German
+            * `ITALIAN` - Italian
+            * `PORTUGUESE` - Portuguese
+            * `RUSSIAN` - Russian
+            * `CHINESE_SIMPLIFIED` - Chinese (Simplified)
+            * `CHINESE_TRADITIONAL` - Chinese (Traditional)
+            * `JAPANESE` - Japanese
+            * `KOREAN` - Korean
+            * `ARABIC` - Arabic
+            * `TURKISH` - Turkish
+            * `DUTCH` - Dutch
+            * `SWEDISH` - Swedish
+            * `NORWEGIAN` - Norwegian
+            * `DANISH` - Danish
+            * `GREEK` - Greek
+            * `HEBREW` - Hebrew
+            * `POLISH` - Polish
+            * `UKRAINIAN` - Ukrainian
+            * `THAI` - Thai
+            * `VIETNAMESE` - Vietnamese
+            * `INDONESIAN` - Indonesian
+            * `MALAY` - Malay
+            * `FILIPINO` - Filipino
+            * `HINDI` - Hindi
+            * `BENGALI` - Bengali
+            * `PUNJABI` - Punjabi
+            * `MARATHI` - Marathi
+            * `GUJARATI` - Gujarati
+            * `TAMIL` - Tamil
+            * `TELUGU` - Telugu
+            * `KANNADA` - Kannada
+            * `MALAYALAM` - Malayalam
+            * `ODIA` - Odia
+            * `ASSAMESE` - Assamese
+            * `URDU` - Urdu
+            * `SANSKRIT` - Sanskrit
+          oneOf:
+          - $ref: '#/components/schemas/LanguageEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        thumbnail:
+          type: string
+          format: uri
+          nullable: true
+    StateEnum:
+      enum:
+      - Andhra Pradesh
+      - Arunachal Pradesh
+      - Assam
+      - Bihar
+      - Chhattisgarh
+      - Goa
+      - Gujarat
+      - Haryana
+      - Himachal Pradesh
+      - Jharkhand
+      - Karnataka
+      - Kerala
+      - Madhya Pradesh
+      - Maharashtra
+      - Manipur
+      - Meghalaya
+      - Mizoram
+      - Nagaland
+      - Odisha
+      - Punjab
+      - Rajasthan
+      - Sikkim
+      - Tamil Nadu
+      - Telangana
+      - Tripura
+      - Uttar Pradesh
+      - Uttarakhand
+      - West Bengal
+      - Andaman and Nicobar Islands
+      - Chandigarh
+      - Dadra and Nagar Haveli and Daman and Diu
+      - Delhi
+      - Jammu and Kashmir
+      - Ladakh
+      - Lakshadweep
+      - Puducherry
+      type: string
+      description: |-
+        * `Andhra Pradesh` - Andhra Pradesh
+        * `Arunachal Pradesh` - Arunachal Pradesh
+        * `Assam` - Assam
+        * `Bihar` - Bihar
+        * `Chhattisgarh` - Chhattisgarh
+        * `Goa` - Goa
+        * `Gujarat` - Gujarat
+        * `Haryana` - Haryana
+        * `Himachal Pradesh` - Himachal Pradesh
+        * `Jharkhand` - Jharkhand
+        * `Karnataka` - Karnataka
+        * `Kerala` - Kerala
+        * `Madhya Pradesh` - Madhya Pradesh
+        * `Maharashtra` - Maharashtra
+        * `Manipur` - Manipur
+        * `Meghalaya` - Meghalaya
+        * `Mizoram` - Mizoram
+        * `Nagaland` - Nagaland
+        * `Odisha` - Odisha
+        * `Punjab` - Punjab
+        * `Rajasthan` - Rajasthan
+        * `Sikkim` - Sikkim
+        * `Tamil Nadu` - Tamil Nadu
+        * `Telangana` - Telangana
+        * `Tripura` - Tripura
+        * `Uttar Pradesh` - Uttar Pradesh
+        * `Uttarakhand` - Uttarakhand
+        * `West Bengal` - West Bengal
+        * `Andaman and Nicobar Islands` - Andaman and Nicobar Islands
+        * `Chandigarh` - Chandigarh
+        * `Dadra and Nagar Haveli and Daman and Diu` - Dadra and Nagar Haveli and Daman and Diu
+        * `Delhi` - Delhi
+        * `Jammu and Kashmir` - Jammu and Kashmir
+        * `Ladakh` - Ladakh
+        * `Lakshadweep` - Lakshadweep
+        * `Puducherry` - Puducherry
+    UserCreds:
+      type: object
+      description: |-
+        Minimal signup serializer:
+          - input: email, password
+          - validates: unique & well-formed email, password via Django validators
+          - creates user with a unique, auto-generated username from email local-part
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          writeOnly: true
+      required:
+      - email
+      - password
+    UserDetail:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+          readOnly: true
+          nullable: true
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+        email:
+          type: string
+          format: email
+          readOnly: true
+        first_name:
+          type: string
+          readOnly: true
+        last_name:
+          type: string
+          readOnly: true
+        bio:
+          type: string
+          readOnly: true
+          nullable: true
+          title: Biography
+        gender:
+          readOnly: true
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/GenderEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        city:
+          type: string
+          readOnly: true
+          nullable: true
+          title: City of Residence
+        state:
+          readOnly: true
+          nullable: true
+          title: Current State
+          oneOf:
+          - $ref: '#/components/schemas/StateEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        country:
+          type: string
+          readOnly: true
+          nullable: true
+          title: Country of Residence
+        birth_date:
+          type: string
+          format: date
+          readOnly: true
+          nullable: true
+        date_joined:
+          type: string
+          format: date-time
+          readOnly: true
+        is_active:
+          type: boolean
+          readOnly: true
+        avatar_url:
+          type: string
+          readOnly: true
+      required:
+      - avatar_url
+      - bio
+      - birth_date
+      - city
+      - country
+      - date_joined
+      - email
+      - first_name
+      - gender
+      - id
+      - is_active
+      - last_name
+      - state
+      - username
+    VerifyOtp:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        otp:
+          type: integer
+      required:
+      - email
+      - otp
+  securitySchemes:
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

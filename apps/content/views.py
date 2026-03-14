@@ -16,6 +16,7 @@ from django.core.cache import cache
 import hashlib
 import json
 import re
+from rest_framework_simplejwt.authentication import JWTAuthentication
 
 
 
@@ -55,30 +56,30 @@ class ContentViewSet(viewsets.GenericViewSet):
         # "recent_playlists": PlaylistReadSerializer,
     }
     permission_action_classes = {
-        "playlist": [AllowAny],
-        "playlist_create": [AllowAny],
-        "playlist_retrieve": [AllowAny],
-        "playlist_update": [AllowAny],
-        "playlist_delete": [AllowAny],
-        "playlist_click": [AllowAny],
-        "playlist_rate": [AllowAny],
-        "playlist_ratings_reset": [AllowAny],
-        "playlist_impressions_reset": [AllowAny],
-        "featured_playlists": [AllowAny],
+        "playlist": [IsAuthenticated],
+        "playlist_create": [IsAuthenticated],
+        "playlist_retrieve": [IsAuthenticated],
+        "playlist_update": [IsAuthenticated],
+        "playlist_delete": [IsAuthenticated],
+        "playlist_click": [IsAuthenticated],
+        "playlist_rate": [IsAuthenticated],
+        "playlist_ratings_reset": [IsAuthenticated],
+        "playlist_impressions_reset": [IsAuthenticated],
+        "featured_playlists": [IsAuthenticated],
         # "featured_playlists": [AllowAny],
         # "recent_playlists": [AllowAny],
     }
     authentication_action_classes = {
-        "playlist": [],
-        "playlist_create": [],
-        "playlist_retrieve": [],
-        "playlist_update": [],
-        "playlist_delete": [],
-        "playlist_click": [],
-        "playlist_rate": [],
-        "playlist_ratings_reset": [],
-        "playlist_impressions_reset": [],
-        "featured_playlists": [],
+        "playlist": [JWTAuthentication],
+        "playlist_create": [JWTAuthentication],
+        "playlist_retrieve": [JWTAuthentication],
+        "playlist_update": [JWTAuthentication],
+        "playlist_delete": [JWTAuthentication],
+        "playlist_click": [JWTAuthentication],
+        "playlist_rate": [JWTAuthentication],
+        "playlist_ratings_reset": [JWTAuthentication],
+        "playlist_impressions_reset": [JWTAuthentication],
+        "featured_playlists": [JWTAuthentication],
     }
     throttle_action_classes = {
         "playlist": [],
@@ -179,34 +180,6 @@ class ContentViewSet(viewsets.GenericViewSet):
             data=read_ser.data,
             status_code=status.HTTP_201_CREATED,
             message="Playlist created successfully",
-        )
-    
-
-    @action(
-    detail=False,
-    methods=["get"],
-    url_path=r"playlist/(?P<pk>\d+)",
-    url_name="playlist_retrieve",
-    )
-    def playlist_retrieve(self, request, pk=None, *args, **kwargs):
-        """
-        GET /content/playlist/<id>
-        Returns a single playlist by primary key.
-        """
-        qs = self.get_queryset()  # uses queryset_action_classes['playlist_retrieve']
-        obj = qs.filter(pk=pk).first()
-        if not obj:
-            return api_response(
-                request,
-                status_code=status.HTTP_404_NOT_FOUND,
-                errors={"detail": "Playlist not found"},
-            )
-        ser = self.get_serializer(obj, context={"request": request})
-        return api_response(
-            request,
-            data=ser.data,
-            status_code=status.HTTP_200_OK,
-            message="Playlist fetched successfully",
         )
     
 
