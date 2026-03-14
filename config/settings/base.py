@@ -98,6 +98,7 @@ THIRD_PARTY_APPS = [
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
+    "drf_spectacular",
 ]
 LOCAL_APPS = [
     "ahara.users",
@@ -231,8 +232,7 @@ LOGGING = {
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
-        # Note the scheme is now "redis://"
-        "LOCATION": "redis://default:ZdenAdAKhMnYTRGJHqZWEtWYfmsWyR4v@redis-16980.c305.ap-south-1-1.ec2.cloud.redislabs.com:16980/0",
+        "LOCATION": env("REDIS_URL", default="redis://default:ZdenAdAKhMnYTRGJHqZWEtWYfmsWyR4v@redis-16980.c305.ap-south-1-1.ec2.cloud.redislabs.com:16980/0"),
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
             "SERIALIZER": "django_redis.serializers.json.JSONSerializer",
@@ -245,7 +245,7 @@ CACHES = {
 }
 
 # -------------------- Redis --------------------
-REDIS_URL = env("REDIS_URL", default="redis://localhost:6379/0")
+REDIS_URL = env("REDIS_URL", default="redis://default:ZdenAdAKhMnYTRGJHqZWEtWYfmsWyR4v@redis-16980.c305.ap-south-1-1.ec2.cloud.redislabs.com:16980/0")
 REDIS_SSL = REDIS_URL.startswith("rediss://")
 
 # -------------------- allauth --------------------
@@ -275,6 +275,83 @@ REST_FRAMEWORK = {
         "verify_otp_user": "5/min",
     },
     "EXCEPTION_HANDLER": "utilities.response.unified_exception_handler",
+    "DEFAULT_SCHEMA_CLASS": "utilities.schema.AppGroupAutoSchema",
+}
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Ahara API Documentation",
+    "DESCRIPTION": """
+# ✨ Welcome to the Ahara API! 
+
+This page is your playground! It’s an interactive documentation site where you can not only see what links (endpoints) exist in the backend, but you can also test them out by sending data directly from here. 
+
+---
+
+## 🔒 Step 1: How to Login & Get Access
+Most of the actions in this app (like rating a playlist or asking the AI) require you to prove who you are. We do this using a **Login Token** (JWT).
+
+**Here is exactly how to get one:**
+1. Scroll down to the **Users** section and find the `POST /users/auth/login/` (or similar login endpoint).
+2. Click on the row to expand it, then click the **"Try it out"** button.
+3. Fill in your email/username and password in the JSON box. Wait, what's a JSON box? It's just a text format for sending data. Example:
+   ```json
+   {
+     "username": "mridul",
+     "password": "mypassword123"
+   }
+   ```
+4. Click the big **Execute** button.
+5. If your login is correct, scroll down to the "Server response" box. You will see a long string of random letters and numbers called `"access"`. Copy that whole string (without quotes).
+6. Now, scroll all the way back to the very top of this page and click the white **"Authorize"** button next to the lock icon.
+7. In the box that pops up, type the word `Bearer`, press space, and paste your token. Example:
+   `Bearer eyJhbGciOiJIUzI1Ni...`
+8. Click **Authorize** and then **Close**. You are now logged in! Every endpoint will now automatically attach your "ID card" to prove who you are.
+
+---
+
+## 📖 Step 2: Understanding the Endpoints
+
+An "endpoint" is just a specific web address that does a specific job. Here is what each one does in simple English:
+
+### 👤 Users (Your Account)
+- `POST /users/auth/login/` - **Log In**: Tell the app who you are to get your access token.
+- `GET /users/auth/me/` - **My Profile**: Just returns your name, email, and user details if you are successfully logged in. 
+
+### 🎵 Content (Playlists & Therapy)
+This section handles all the wellness playlists, music, and content recommendations.
+
+- `GET /api/content/playlist/` - **Get Recommended Playlists**: Fetches playlists meant for you. Simply hit "Execute" to try it. No extra data needed.
+- `POST /api/content/playlist-create/` - **Create a Playlist**: Allows an admin to create a new playlist by sending a title and tracks.
+- `GET /api/content/playlist/{id}/` - **Get Specific Playlist**: Enter the ID of a specific playlist in the box, and it will fetch the details for just that one.
+- `POST /api/content/playlist/{id}/click/` - **Record a Click**: Every time a user clicks a playlist in your app, call this. It tells the backend "Hey, the user showed interest in this!" so we can recommend better things later. No payload needed, just the ID.
+- `GET /api/content/playlist/{id}/impressions/reset/` - **Reset Views**: Clears out the view history count for a given playlist. 
+- `POST /api/content/playlist/{id}/rate/` - **Add a Rating**: Lets the user give 1-5 stars and a comment. You must send data like this:
+  ```json
+  {
+    "rating": 5,
+    "comment": "This sound therapy really helped me sleep!"
+  }
+  ```
+- `GET /api/content/playlist/{id}/ratings/reset/` - **Clear Ratings**: Danger! Deletes all ratings on a specific playlist.
+- `GET /api/content/playlist/featured/` - **Get Featured Content**: Fetches the hand-picked, top-level playlists for the home screen (doesn't need an ID).
+- `DELETE /api/content/playlist_delete/{id}/` - **Delete Playlist**: Completely removes the playlist from the database. Enter the ID to delete.
+
+### 🧠 Intelligence (AI Assistant)
+This is where the magic happens and the backend talks to the Gemini AI.
+
+- `POST /api/intelligence/ask/` - **Ask Ahara AI**: This is how you send a question to the AI engine. You must provide a "prompt". Example data to send:
+  ```json
+  {
+    "prompt": "I'm feeling very stressed right now and I have a slight headache. What sound frequency should I listen to?"
+  }
+  ```
+  The AI will respond back with advice, generated entirely on the fly based on your prompt!
+
+---
+*If you get a "401 Unauthorized" error at any point, it means your token expired. Just go back to Step 1 and log in again to get a fresh one!*
+""",
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
 }
 
 SIMPLE_JWT = {

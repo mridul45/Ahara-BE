@@ -27,6 +27,8 @@ CACHES = {
             # Mimicking memcache behavior.
             # https://github.com/jazzband/django-redis#memcached-exceptions-behavior
             "IGNORE_EXCEPTIONS": True,
+            "ssl": True,
+            "ssl_cert_reqs": "required",
         },
     },
 }

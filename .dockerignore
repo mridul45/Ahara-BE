@@ -23,6 +23,8 @@ venv/
 
 # Local settings
 *.local.yml
+.env
+.env.*
 
 # Local database
 *.sqlite3
