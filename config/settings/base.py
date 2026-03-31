@@ -231,16 +231,17 @@ LOGGING = {
 
 CACHES = {
     "default": {
-        "BACKEND": "django_redis.cache.RedisCache",
+        "BACKEND": "utilities.cache_backend.FallbackCache",
         "LOCATION": env("REDIS_URL", default="redis://default:ZdenAdAKhMnYTRGJHqZWEtWYfmsWyR4v@redis-16980.c305.ap-south-1-1.ec2.cloud.redislabs.com:16980/0"),
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
             "SERIALIZER": "django_redis.serializers.json.JSONSerializer",
             # Connection parameters are lowercase
             "ssl": True,
-            "ssl_cert_reqs": "required", # Good practice for security
+            "ssl_cert_reqs": "required",  # Good practice for security
         },
-        "KEY_PREFIX": "ahara", 
+        "KEY_PREFIX": "ahara",
+        "FALLBACK_COOLDOWN": 60,  # seconds before retrying Redis after failure
     }
 }
 

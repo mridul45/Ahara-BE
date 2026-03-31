@@ -20,7 +20,7 @@ DATABASES["default"]["CONN_MAX_AGE"] = env.int("CONN_MAX_AGE", default=60)
 # ------------------------------------------------------------------------------
 CACHES = {
     "default": {
-        "BACKEND": "django_redis.cache.RedisCache",
+        "BACKEND": "utilities.cache_backend.FallbackCache",
         "LOCATION": REDIS_URL,
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
@@ -30,6 +30,7 @@ CACHES = {
             "ssl": True,
             "ssl_cert_reqs": "required",
         },
+        "FALLBACK_COOLDOWN": 60,  # seconds before retrying Redis after failure
     },
 }
 
