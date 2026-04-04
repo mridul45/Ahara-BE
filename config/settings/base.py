@@ -159,6 +159,9 @@ if "https://mridul45.github.io" not in CSRF_TRUSTED_ORIGINS:
 if "http://localhost:5173" not in CSRF_TRUSTED_ORIGINS:
     CSRF_TRUSTED_ORIGINS.append("http://localhost:5173")
 
+if "https://ahara-be.onrender.com" not in CSRF_TRUSTED_ORIGINS:
+    CSRF_TRUSTED_ORIGINS.append("https://ahara-be.onrender.com")
+
 CORS_ALLOW_HEADERS = list(default_headers) + [
     "x-csrftoken",
     "if-none-match",
