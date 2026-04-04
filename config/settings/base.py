@@ -57,13 +57,19 @@ if external_url:
 USE_X_FORWARDED_HOST = True
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
-SESSION_COOKIE_SECURE = not DEBUG
-CSRF_COOKIE_SECURE = not DEBUG
-
 # CSRF cookie must be readable by JS to send X-CSRFToken from SPA
 CSRF_COOKIE_HTTPONLY = False
+
 # For cross-site XHR, CSRF cookie needs SameSite=None
-CSRF_COOKIE_SAMESITE = "None" if CROSS_SITE_COOKIES else ("Lax" if not IS_PROD else "Lax")
+if CROSS_SITE_COOKIES:
+    CSRF_COOKIE_SAMESITE = "None"
+    CSRF_COOKIE_SECURE = True
+    SESSION_COOKIE_SAMESITE = "None"
+    SESSION_COOKIE_SECURE = True
+else:
+    CSRF_COOKIE_SAMESITE = "Lax"
+    CSRF_COOKIE_SECURE = not DEBUG
+    SESSION_COOKIE_SECURE = not DEBUG
 
 # -------------------- DB --------------------
 DATABASES = {
@@ -385,8 +391,7 @@ REFRESH_COOKIE_KWARGS = {
     "samesite": "Lax" if DEBUG else "None", 
 }
 
-CSRF_COOKIE_SECURE = not DEBUG
-SESSION_COOKIE_SECURE = not DEBUG
+
 
 # -------------------- Your stuff --------------------
 IMAGEKIT_PUBLIC_KEY = env("IMAGEKIT_PUBLIC_KEY")
