@@ -28,6 +28,7 @@ from .api_utils.throtles import (
 )
 from .serializers import (
     LoginSerializer,
+    EmailOnlyLoginSerializer,
     UserCredsSerializer,
     UserDetailSerializer,
     VerifyOtpSerializer,
@@ -57,6 +58,7 @@ class AuthViewSet(viewsets.GenericViewSet):
     serializer_action_classes = {
         "register": UserCredsSerializer,
         "login": LoginSerializer,
+        "email_login": EmailOnlyLoginSerializer,
         "me": UserDetailSerializer,
         "verify_otp": VerifyOtpSerializer,
         # "refresh" and "csrf" are cookie-based/public -> no serializer
@@ -64,6 +66,7 @@ class AuthViewSet(viewsets.GenericViewSet):
     permission_action_classes = {
         "register": [AllowAny],
         "login": [AllowAny],
+        "email_login": [AllowAny],
         "me": [IsAuthenticated],
         "verify_otp": [AllowAny],
         "refresh": [AllowAny],
@@ -73,6 +76,7 @@ class AuthViewSet(viewsets.GenericViewSet):
     authentication_action_classes = {
         "register": [],             # open endpoint
         "login": [],                # open endpoint
+        "email_login": [],          # passwordless, open endpoint
         "me": [JWTAuthentication],  # bearer access required
         "verify_otp": [],           # open endpoint
         "refresh": [],              # cookie-based, not access-based
@@ -82,6 +86,7 @@ class AuthViewSet(viewsets.GenericViewSet):
     throttle_action_classes = {
         "register": [SignupThrottle],
         "login": [LoginIPThrottle, LoginUserThrottle],
+        "email_login": [LoginIPThrottle],
         "me": [],
         "verify_otp": [VerifyOtpIPThrottle, VerifyOtpUserThrottle],
         # You may add a small throttle for "refresh" if desired
@@ -186,7 +191,37 @@ class AuthViewSet(viewsets.GenericViewSet):
         )
         _set_refresh_cookie(resp, refresh)
         return resp
-    
+
+    @action(detail=False, methods=["post"], url_path="email-login", url_name="email_login")
+    def email_login(self, request, *args, **kwargs):
+        """
+        Passwordless login.
+        Body: {"email": "..."}
+        If the email exists in the DB and the account is active,
+        returns access token in JSON and sets refresh in HttpOnly cookie.
+        """
+        ser = self.get_serializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        user = ser.validated_data["user"]
+
+        refresh = RefreshToken.for_user(user)
+        access = str(refresh.access_token)
+
+        payload = {
+            "id": str(user.pk),
+            "username": user.username,
+            "email": user.email,
+            "access": access,
+        }
+        resp = api_response(
+            request,
+            data=payload,
+            status_code=status.HTTP_200_OK,
+            message="Logged in (passwordless)",
+        )
+        _set_refresh_cookie(resp, refresh)
+        return resp
+
 
     @action(detail=False, methods=["get", "patch"], url_path="me", url_name="me")
     def me(self, request, *args, **kwargs):

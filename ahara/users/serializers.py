@@ -94,6 +94,29 @@ class LoginSerializer(serializers.Serializer):
         return attrs
 
 
+class EmailOnlyLoginSerializer(serializers.Serializer):
+    """
+    Passwordless login: accepts only an email address.
+    If the email exists and the account is active, passes the user forward
+    for token generation. No password check is performed.
+    """
+    email = serializers.EmailField()
+
+    def validate(self, attrs):
+        email = attrs.get("email", "").strip().lower()
+
+        try:
+            user = User._default_manager.get(email__iexact=email)
+        except User.DoesNotExist:
+            raise AuthenticationFailed("No account found with this email.")
+
+        if not user.is_active:
+            raise AuthenticationFailed("User account is disabled.")
+
+        attrs["user"] = user
+        return attrs
+
+
 class UserDetailSerializer(serializers.ModelSerializer):
     avatar_url = serializers.SerializerMethodField()
 
