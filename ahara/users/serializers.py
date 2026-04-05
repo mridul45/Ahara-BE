@@ -117,6 +117,34 @@ class EmailOnlyLoginSerializer(serializers.Serializer):
         return attrs
 
 
+class EmailOnlySignupSerializer(serializers.Serializer):
+    """
+    Passwordless signup: accepts only an email address.
+    Creates a new user with an unusable password and an auto-generated username.
+    Rejects the request if the email is already registered.
+    """
+    email = serializers.EmailField()
+
+    def validate_email(self, value: str) -> str:
+        value = value.strip().lower()
+        if User._default_manager.filter(email__iexact=value).exists():
+            raise serializers.ValidationError("A user with this email already exists.")
+        return value
+
+    def create(self, validated_data):
+        email = validated_data["email"]
+
+        # Derive username from email local-part
+        local_part = email.split("@", 1)[0] if "@" in email else email
+        username = _generate_unique_username(local_part)
+
+        user = User(username=username, email=email)
+        user.set_unusable_password()  # no password for passwordless accounts
+        user.save()
+
+        return user
+
+
 class UserDetailSerializer(serializers.ModelSerializer):
     avatar_url = serializers.SerializerMethodField()
 

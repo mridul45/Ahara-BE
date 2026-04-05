@@ -29,6 +29,7 @@ from .api_utils.throtles import (
 from .serializers import (
     LoginSerializer,
     EmailOnlyLoginSerializer,
+    EmailOnlySignupSerializer,
     UserCredsSerializer,
     UserDetailSerializer,
     VerifyOtpSerializer,
@@ -59,6 +60,7 @@ class AuthViewSet(viewsets.GenericViewSet):
         "register": UserCredsSerializer,
         "login": LoginSerializer,
         "email_login": EmailOnlyLoginSerializer,
+        "email_signup": EmailOnlySignupSerializer,
         "me": UserDetailSerializer,
         "verify_otp": VerifyOtpSerializer,
         # "refresh" and "csrf" are cookie-based/public -> no serializer
@@ -67,6 +69,7 @@ class AuthViewSet(viewsets.GenericViewSet):
         "register": [AllowAny],
         "login": [AllowAny],
         "email_login": [AllowAny],
+        "email_signup": [AllowAny],
         "me": [IsAuthenticated],
         "verify_otp": [AllowAny],
         "refresh": [AllowAny],
@@ -77,6 +80,7 @@ class AuthViewSet(viewsets.GenericViewSet):
         "register": [],             # open endpoint
         "login": [],                # open endpoint
         "email_login": [],          # passwordless, open endpoint
+        "email_signup": [],         # passwordless, open endpoint
         "me": [JWTAuthentication],  # bearer access required
         "verify_otp": [],           # open endpoint
         "refresh": [],              # cookie-based, not access-based
@@ -87,6 +91,7 @@ class AuthViewSet(viewsets.GenericViewSet):
         "register": [SignupThrottle],
         "login": [LoginIPThrottle, LoginUserThrottle],
         "email_login": [LoginIPThrottle],
+        "email_signup": [SignupThrottle],
         "me": [],
         "verify_otp": [VerifyOtpIPThrottle, VerifyOtpUserThrottle],
         # You may add a small throttle for "refresh" if desired
@@ -222,6 +227,37 @@ class AuthViewSet(viewsets.GenericViewSet):
         _set_refresh_cookie(resp, refresh)
         return resp
 
+    @action(detail=False, methods=["post"], url_path="email-signup", url_name="email_signup")
+    @transaction.atomic
+    def email_signup(self, request, *args, **kwargs):
+        """
+        Passwordless signup.
+        Body: {"email": "..."}
+        Creates a new user (unusable password, auto-generated username)
+        and immediately returns access token in JSON + refresh in HttpOnly cookie.
+        Returns 400 if the email is already registered.
+        """
+        ser = self.get_serializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        user = ser.save()
+
+        refresh = RefreshToken.for_user(user)
+        access = str(refresh.access_token)
+
+        payload = {
+            "id": str(user.pk),
+            "username": user.username,
+            "email": user.email,
+            "access": access,
+        }
+        resp = api_response(
+            request,
+            data=payload,
+            status_code=status.HTTP_201_CREATED,
+            message="Account created (passwordless)",
+        )
+        _set_refresh_cookie(resp, refresh)
+        return resp
 
     @action(detail=False, methods=["get", "patch"], url_path="me", url_name="me")
     def me(self, request, *args, **kwargs):
