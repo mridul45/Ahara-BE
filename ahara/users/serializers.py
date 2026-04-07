@@ -10,8 +10,9 @@ from rest_framework.validators import UniqueValidator
 from rest_framework_simplejwt.exceptions import InvalidToken
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 
-from .models import Otp
+from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 
+from django.core.cache import cache
 from utilities.username_gen import _generate_unique_username
 
 User = get_user_model()
@@ -120,8 +121,8 @@ class EmailOnlyLoginSerializer(serializers.Serializer):
 class EmailOnlySignupSerializer(serializers.Serializer):
     """
     Passwordless signup: accepts only an email address.
-    Creates a new user with an unusable password and an auto-generated username.
     Rejects the request if the email is already registered.
+    Creation is deferred to OTP verification.
     """
     email = serializers.EmailField()
 
@@ -130,19 +131,6 @@ class EmailOnlySignupSerializer(serializers.Serializer):
         if User._default_manager.filter(email__iexact=value).exists():
             raise serializers.ValidationError("A user with this email already exists.")
         return value
-
-    def create(self, validated_data):
-        email = validated_data["email"]
-
-        # Derive username from email local-part
-        local_part = email.split("@", 1)[0] if "@" in email else email
-        username = _generate_unique_username(local_part)
-
-        user = User(username=username, email=email)
-        user.set_unusable_password()  # no password for passwordless accounts
-        user.save()
-
-        return user
 
 
 class UserDetailSerializer(serializers.ModelSerializer):
@@ -179,32 +167,24 @@ class UserDetailSerializer(serializers.ModelSerializer):
 
 class VerifyOtpSerializer(serializers.Serializer):
     email = serializers.EmailField()
-    otp = serializers.IntegerField()
+    otp = serializers.CharField(max_length=6)
 
     def validate(self, attrs):
-        email = attrs.get("email")
+        email = attrs.get("email", "").strip().lower()
         otp = attrs.get("otp")
 
-        try:
-            user = User._default_manager.get(email__iexact=email)
-        except User.DoesNotExist:
-            raise AuthenticationFailed("Invalid credentials.")
+        # 1. Check cache
+        cache_key = f"signup_otp_{email}"
+        cached_data = cache.get(cache_key)
 
-        try:
-            otp_instance = Otp.objects.filter(user=user).latest('created_at')
-        except Otp.DoesNotExist:
-            raise AuthenticationFailed("OTP not found for this user.")
+        if not cached_data:
+            raise AuthenticationFailed("OTP has expired or was not sent.")
 
-        # Check if OTP is older than 10 minutes
-        if otp_instance.created_at < timezone.now() - timezone.timedelta(minutes=10):
-            otp_instance.delete()
-            raise AuthenticationFailed("OTP has expired.")
-
-        if otp_instance.otp != otp:
+        if str(cached_data.get("otp")) != str(otp):
             raise AuthenticationFailed("Invalid OTP.")
 
-        attrs["user"] = user
-        attrs["otp_instance"] = otp_instance
+        # Valid OTP, we will create the user in the view (or skip if exists in other flows).
+        attrs["email"] = email
         return attrs
     
 

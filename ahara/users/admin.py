@@ -7,7 +7,7 @@ from django.utils.translation import gettext_lazy as _
 
 from .forms import UserAdminChangeForm
 from .forms import UserAdminCreationForm
-from .models import User,Otp
+from .models import User
 
 if getattr(settings, "DJANGO_ADMIN_FORCE_ALLAUTH", False):
     admin.autodiscover()
@@ -155,8 +155,3 @@ class UserAdmin(BaseUserAdmin):
             full or thumb,
             thumb,
         )
-
-
-@admin.register(Otp)
-class OtpAdmin(admin.ModelAdmin):
-    list_display = ("user", "otp", "created_at")

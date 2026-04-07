@@ -403,3 +403,6 @@ FEATURED_KEY = env("FEATURED_KEY", default="ahara:pl:featured:v1:default")
 FEATURED_TTL = env.int("FEATURED_TTL", default=60 * 60 * 6)
 
 GEMINI_API_KEY = env("GEMINI_API_KEY", default="YOUR API KEY HERE....")
+
+RESEND_API_KEY = env("RESEND_API_KEY", default="")
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="onboarding@resend.dev")

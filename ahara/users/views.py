@@ -35,7 +35,10 @@ from .serializers import (
     VerifyOtpSerializer,
     UserUpdateSerializer,
 )
-from .models import Otp
+from django.core.cache import cache
+from utilities.email import send_otp_email
+from utilities.username_gen import _generate_unique_username
+from utilities.otp import generate_otp
 ''' <-------------------------------------- IMPORTS FINISH --------------------------------------> '''
 
 User = get_user_model()
@@ -153,9 +156,6 @@ class AuthViewSet(viewsets.GenericViewSet):
         ser.is_valid(raise_exception=True)
         user = ser.save()
 
-        # Create OTP entry for the user
-        Otp.objects.create(user=user)
-
         payload = {
             "id": str(user.pk),
             "username": user.username,
@@ -228,36 +228,29 @@ class AuthViewSet(viewsets.GenericViewSet):
         return resp
 
     @action(detail=False, methods=["post"], url_path="email-signup", url_name="email_signup")
-    @transaction.atomic
     def email_signup(self, request, *args, **kwargs):
         """
         Passwordless signup.
-        Body: {"email": "..."}
-        Creates a new user (unusable password, auto-generated username)
-        and immediately returns access token in JSON + refresh in HttpOnly cookie.
-        Returns 400 if the email is already registered.
+        Validates email. Generates short OTP, caches it, and sends via mailjet.
         """
         ser = self.get_serializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        user = ser.save()
+        email = ser.validated_data["email"].strip().lower()
 
-        refresh = RefreshToken.for_user(user)
-        access = str(refresh.access_token)
+        otp = generate_otp(4)
 
-        payload = {
-            "id": str(user.pk),
-            "username": user.username,
-            "email": user.email,
-            "access": access,
-        }
-        resp = api_response(
+        cache_key = f"signup_otp_{email}"
+        cache.set(cache_key, {"otp": otp}, timeout=600)  # 10 minutes
+        print(f"DEBUG - Storing in cache: Key='{cache_key}', Data={{'otp': '{otp}'}}")
+
+        send_otp_email(to_email=email, otp=otp)
+
+        return api_response(
             request,
-            data=payload,
-            status_code=status.HTTP_201_CREATED,
-            message="Account created (passwordless)",
+            data={"email": email},
+            status_code=status.HTTP_200_OK,
+            message="OTP sent to email.",
         )
-        _set_refresh_cookie(resp, refresh)
-        return resp
 
     @action(detail=False, methods=["get", "patch"], url_path="me", url_name="me")
     def me(self, request, *args, **kwargs):
@@ -287,29 +280,28 @@ class AuthViewSet(viewsets.GenericViewSet):
     @transaction.atomic
     def verify_otp(self, request, *args, **kwargs):
         """
-        Body: {"email": "...", "otp": 123456}
+        Body: {"email": "...", "otp": 1234}
         On success:
-          - issues access token in JSON (FE stores in memory)
-          - sets refresh token in HttpOnly cookie (server-set)
-        Entire flow is atomic; OTP row is locked to avoid races.
+          - Validates OTP against cache
+          - Creates user if they don't exist
+          - issues tokens
         """
         ser = self.get_serializer(data=request.data)
         ser.is_valid(raise_exception=True)
 
-        user = ser.validated_data["user"]
-        otp_instance = ser.validated_data["otp_instance"]
+        email = ser.validated_data["email"]
 
-        # Re-fetch and LOCK the latest OTP row for race safety
-        locked_latest = (
-            Otp.objects.select_for_update()
-            .filter(user=user)
-            .order_by("-created_at")
-            .first()
-        )
-        if not locked_latest or locked_latest.pk != otp_instance.pk:
-            raise AuthenticationFailed("Invalid or expired OTP.")
-        # Single-use: consume OTP
-        locked_latest.delete()
+        user = User._default_manager.filter(email__iexact=email).first()
+        if not user:
+            local_part = email.split("@", 1)[0] if "@" in email else email
+            username = _generate_unique_username(local_part)
+            
+            user = User(username=username, email=email)
+            user.set_unusable_password()
+            user.save()
+
+        # Remove used OTP from cache
+        cache.delete(f"signup_otp_{email}")
 
         # Mint tokens
         refresh = RefreshToken.for_user(user)
@@ -320,14 +312,14 @@ class AuthViewSet(viewsets.GenericViewSet):
             "username": getattr(user, "username", None),
             "email": user.email,
             "verified": True,
-            "access": access,  # access ONLY in body
+            "access": access,
         }
 
         resp = api_response(
             request,
             data=payload,
             status_code=status.HTTP_200_OK,
-            message="OTP verified",
+            message="Account verified and logged in.",
         )
         _set_refresh_cookie(resp, refresh)
         return resp

@@ -130,20 +130,3 @@ class User(AbstractBaseUser, PermissionsMixin):
     def full_name(self):
         s = f"{self.first_name} {self.last_name}".strip()
         return s or self.username or self.email
-
-
-
-class Otp(models.Model):
-    """Model to store OTPs for user verification"""
-
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    otp = models.PositiveIntegerField(editable=False)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return f"OTP for {self.user}"
-
-    def save(self, *args, **kwargs):
-        if not self.pk:  # On creation
-            self.otp = random.randint(1000, 9999)
-        super().save(*args, **kwargs)
