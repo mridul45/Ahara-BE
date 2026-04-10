@@ -203,29 +203,27 @@ class AuthViewSet(viewsets.GenericViewSet):
         Passwordless login.
         Body: {"email": "..."}
         If the email exists in the DB and the account is active,
-        returns access token in JSON and sets refresh in HttpOnly cookie.
+        generates short OTP, caches it, and sends via mailjet.
         """
         ser = self.get_serializer(data=request.data)
         ser.is_valid(raise_exception=True)
         user = ser.validated_data["user"]
+        email = user.email.strip().lower()
 
-        refresh = RefreshToken.for_user(user)
-        access = str(refresh.access_token)
+        otp = generate_otp(4)
 
-        payload = {
-            "id": str(user.pk),
-            "username": user.username,
-            "email": user.email,
-            "access": access,
-        }
-        resp = api_response(
+        cache_key = f"auth_otp_{email}"
+        cache.set(cache_key, {"otp": otp}, timeout=600)  # 10 minutes
+        print(f"DEBUG - Storing in cache for login: Key='{cache_key}', Data={{'otp': '{otp}'}}")
+
+        send_otp_email(to_email=email, otp=otp)
+
+        return api_response(
             request,
-            data=payload,
+            data={"email": email},
             status_code=status.HTTP_200_OK,
-            message="Logged in (passwordless)",
+            message="OTP sent to email for login.",
         )
-        _set_refresh_cookie(resp, refresh)
-        return resp
 
     @action(detail=False, methods=["post"], url_path="email-signup", url_name="email_signup")
     def email_signup(self, request, *args, **kwargs):
@@ -239,9 +237,9 @@ class AuthViewSet(viewsets.GenericViewSet):
 
         otp = generate_otp(4)
 
-        cache_key = f"signup_otp_{email}"
+        cache_key = f"auth_otp_{email}"
         cache.set(cache_key, {"otp": otp}, timeout=600)  # 10 minutes
-        print(f"DEBUG - Storing in cache: Key='{cache_key}', Data={{'otp': '{otp}'}}")
+        print(f"DEBUG - Storing in cache for signup: Key='{cache_key}', Data={{'otp': '{otp}'}}")
 
         send_otp_email(to_email=email, otp=otp)
 
@@ -301,7 +299,7 @@ class AuthViewSet(viewsets.GenericViewSet):
             user.save()
 
         # Remove used OTP from cache
-        cache.delete(f"signup_otp_{email}")
+        cache.delete(f"auth_otp_{email}")
 
         # Mint tokens
         refresh = RefreshToken.for_user(user)

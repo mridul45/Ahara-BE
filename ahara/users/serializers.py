@@ -174,7 +174,7 @@ class VerifyOtpSerializer(serializers.Serializer):
         otp = attrs.get("otp")
 
         # 1. Check cache
-        cache_key = f"signup_otp_{email}"
+        cache_key = f"auth_otp_{email}"
         cached_data = cache.get(cache_key)
 
         if not cached_data:
