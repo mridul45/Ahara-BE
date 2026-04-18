@@ -406,3 +406,13 @@ GEMINI_API_KEY = env("GEMINI_API_KEY", default="YOUR API KEY HERE....")
 
 RESEND_API_KEY = env("RESEND_API_KEY", default="")
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="onboarding@resend.dev")
+
+# -------------------- Memory System --------------------
+# Override any key to tune the 3-tier memory system.
+# See apps/intelligence/logic/memory/config.py for defaults.
+MEMORY_CONFIG = {
+    # Uncomment to override defaults:
+    # "WORKING_BUFFER_MAX_PAIRS": 12,
+    # "DISTILLATION_MODEL": "models/gemini-2.0-flash",
+    # "CONSOLIDATION_THRESHOLD": 3,
+}

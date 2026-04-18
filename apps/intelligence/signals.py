@@ -11,13 +11,7 @@ def update_memory_user_snapshot(sender, instance, created, **kwargs):
     if created:
         return
 
-    # Find all memories associated with this user
-    memories = Memory.objects.filter(user=instance)
-    
-    if not memories.exists():
-        return
-
-    # Construct the new snapshot
+    # Build the new snapshot
     user_snapshot = {
         "id": instance.id,
         "first_name": instance.first_name,
@@ -30,19 +24,11 @@ def update_memory_user_snapshot(sender, instance, created, **kwargs):
         "birth_date": str(instance.birth_date) if getattr(instance, "birth_date", None) else None,
     }
 
-    # Update each memory
-    for memory in memories:
-        if "user_snapshot" in memory.data:
-            memory.data["user_snapshot"] = user_snapshot
-            memory.save(update_fields=["data", "updated_at"])
-        # If user_snapshot doesn't exist (legacy data?), we might want to create it or skip.
-        # Given the create logic, it should exist. 
-        # But if the 'data' structure was different before, we might just want to set it/update it if the key exists or just update it regardless?
-        # The prompt says "it will be edited in the user_snapshot".
-        # I'll update it safely.
-        else:
-             # Initialize if missing (though save() handles it on creation, old rows might not have it)
-            current_data = memory.data if memory.data else {}
-            current_data["user_snapshot"] = user_snapshot
-            memory.data = current_data
-            memory.save(update_fields=["data", "updated_at"])
+    # OneToOneField — at most one Memory per user
+    try:
+        memory = Memory.objects.get(user=instance)
+    except Memory.DoesNotExist:
+        return
+
+    memory.user_snapshot = user_snapshot
+    memory.save(update_fields=["user_snapshot", "updated_at"])

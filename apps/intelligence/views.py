@@ -1,5 +1,4 @@
 from django.conf import settings
-from django.core.cache import cache
 from django.http import StreamingHttpResponse
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -8,9 +7,8 @@ from utilities.response import api_response
 from .serializers import AskGeminiSerializer
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from google import genai
-from .models import Memory
-import json
 from .logic.ved_vyas import VedVyas
+from .logic.memory import MemoryManager
 
 
 class IntelligenceViewSet(viewsets.GenericViewSet):
@@ -26,13 +24,16 @@ class IntelligenceViewSet(viewsets.GenericViewSet):
         "ask_gemini": AskGeminiSerializer,
     }
     permission_action_classes = {
-        "ask_gemini": [IsAuthenticated]
+        "ask_gemini": [IsAuthenticated],
+        "end_session": [IsAuthenticated],
     }
     authentication_action_classes = {
         "ask_gemini": [JWTAuthentication],
+        "end_session": [JWTAuthentication],
     }
     throttle_action_classes = {
         "ask_gemini": [],
+        "end_session": [],
     }
 
     def initialize_request(self, request, *args, **kwargs):
@@ -89,42 +90,9 @@ class IntelligenceViewSet(viewsets.GenericViewSet):
             )
 
         # ------------------------------------------------------------------
-        # MEMORY CONTEXT INJECTION
+        # MEMORY CONTEXT INJECTION (3-tier system)
         # ------------------------------------------------------------------
-        system_context = ""
-        cache_key = None
-
-        if request.user.is_authenticated:
-            cache_key = f"user_memory_data_{request.user.id}"
-            memory_data = cache.get(cache_key)
-
-            if memory_data is None:
-                # Not in cache, fetch from DB
-                memory_obj = Memory.objects.filter(user=request.user).first()
-                if not memory_obj:
-                    memory_obj = Memory.objects.create(user=request.user)
-                
-                memory_data = memory_obj.data
-                cache.set(cache_key, memory_data, timeout=3600)
-
-            user_snapshot = memory_data.get("user_snapshot", {})
-            chat_context = memory_data.get("chat", {})
-
-            context_lines = ["User Profile Context:"]
-            for key, value in user_snapshot.items():
-                if value:
-                    context_lines.append(f"- {key}: {value}")
-
-            context_lines.append("\nPrevious Chat/Memory Context:")
-            if chat_context:
-                 context_lines.append(json.dumps(chat_context, indent=2))
-            else:
-                 context_lines.append("(No previous chat memory)")
-
-            system_context = "\n".join(context_lines)
-        else:
-            system_context = "User is anonymous (No memory context)."
-
+        system_context = MemoryManager.build_prompt_context(request.user)
         full_prompt = f"{system_context}\n\nUser Query: {prompt}"
         # ------------------------------------------------------------------
 
@@ -157,26 +125,13 @@ class IntelligenceViewSet(viewsets.GenericViewSet):
                             accumulated_response += text_chunk
                             yield text_chunk
 
-                    # --------------------------------------------------------------
-                    # UPDATE MEMORY (Redis + DB)
-                    # --------------------------------------------------------------
-                    if request.user.is_authenticated and cache_key:
-                        current_mem_data = cache.get(cache_key)
-                        if current_mem_data is None:
-                            mem_obj = Memory.objects.filter(user=request.user).first()
-                            current_mem_data = mem_obj.data if mem_obj else {}
-
-                        chat_history = current_mem_data.get("chat", [])
-                        if isinstance(chat_history, dict):
-                            chat_history = []
-
-                        chat_history.append({"role": "user", "content": prompt})
-                        chat_history.append({"role": "model", "content": accumulated_response})
-
-                        current_mem_data["chat"] = chat_history
-
-                        cache.set(cache_key, current_mem_data, timeout=3600)
-                        Memory.objects.filter(user=request.user).update(data=current_mem_data)
+                    # ----------------------------------------------------------
+                    # POST-STREAM: Record interaction in 3-tier memory
+                    # (runs after user has received the full response)
+                    # ----------------------------------------------------------
+                    MemoryManager.record_interaction(
+                        request.user, prompt, accumulated_response,
+                    )
 
                 except Exception as e:
                     yield f"\n[Streaming error] {str(e)}"
@@ -201,3 +156,31 @@ class IntelligenceViewSet(viewsets.GenericViewSet):
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 errors={"detail": f"Failed to contact Gemini API: {str(e)}"},
             )
+
+    # ---------------------------------------------------------
+
+    @action(detail=False, methods=["post"], url_path="end-session", url_name="end_session")
+    def end_session(self, request, *args, **kwargs):
+        """
+        POST /api/intelligence/end-session/
+
+        Called by the mobile app in onPause()/onDestroy() to flush
+        remaining working memory and distill it into persistent storage
+        before the user exits.
+
+        No request body required.
+
+        Response:
+        {
+            "flushed": true,
+            "turns": 5,
+            "facts_count": 3
+        }
+        """
+        result = MemoryManager.end_session(request.user)
+
+        return api_response(
+            request,
+            status_code=status.HTTP_200_OK,
+            data=result,
+        )
