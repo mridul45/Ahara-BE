@@ -22,12 +22,12 @@ _DEFAULTS = {
 
     # ── Tier 2: Short-Term Memory ────────────────────────────────────
     "MAX_SESSION_SUMMARIES": 5,           # Keep last N session distillations
-    "DISTILLATION_MODEL": "models/gemini-2.0-flash",  # Cheap, fast
+    "DISTILLATION_MODEL": "models/gemini-2.5-flash",  # Cheap, fast
     "DISTILLATION_TIMEOUT": 10,           # Seconds before giving up
 
     # ── Tier 3: Long-Term Memory ─────────────────────────────────────
     "CONSOLIDATION_THRESHOLD": 3,         # Consolidate after N new sessions
-    "CONSOLIDATION_MODEL": "models/gemini-2.0-flash",
+    "CONSOLIDATION_MODEL": "models/gemini-2.5-flash",
     "LTM_MAX_TOKENS_TARGET": 500,         # Target size for LTM document
 
     # ── Prompt Assembly Token Budgets ────────────────────────────────
