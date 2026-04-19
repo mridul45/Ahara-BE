@@ -114,8 +114,7 @@ class MemoryDistiller:
                 raise ValueError(f"Failed to parse distillation output: {raw_text[:200]}")
 
             # ── 5. Store in Short-Term Memory ─────────────────────────
-            if facts:
-                ShortTermStore.store(user_id, facts, session_id)
+            ShortTermStore.store(user_id, facts, session_id)
 
             if mem_cfg("ENABLE_MEMORY_LOGGING"):
                 logger.info(

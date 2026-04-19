@@ -41,6 +41,10 @@ class ShortTermStore:
         Append a new session distillation and enforce the rotation limit.
         Also increments ``sessions_since_consolidation``.
         """
+        # Ensure memory instance exists for the user, especially for existing users
+        # interacting for the first time, even if current session has no facts.
+        mem, _ = Memory.objects.get_or_create(user_id=user_id)
+
         if not facts:
             logger.info("memory.stm user=%s action=skip_empty session=%s", user_id, session_id)
             return

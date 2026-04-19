@@ -9,6 +9,7 @@ def update_memory_user_snapshot(sender, instance, created, **kwargs):
     Update the user_snapshot in the Memory model when the User is updated.
     """
     if created:
+        Memory.objects.create(user=instance)
         return
 
     # Build the new snapshot
