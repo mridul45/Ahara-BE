@@ -396,12 +396,21 @@ class IntelligenceViewSet(viewsets.GenericViewSet):
                     is_archived=False,
                 )
             except ChatSession.DoesNotExist:
-                logger.warning(
-                    "intelligence.ask user=%s session=%s not_found, creating new",
+                # Client created this session locally (offline-first).
+                # Honour the client-provided UUID so both sides share
+                # the same ID — prevents duplicate entries after sync.
+                logger.info(
+                    "intelligence.ask user=%s session=%s not_found_on_server, "
+                    "creating with client-provided id",
                     user.id, session_id,
                 )
+                session = ChatSession(id=session_id, user=user)
+                session.generate_title_from_message(prompt)
+                session.save()
+                ChatSession.enforce_retention(user.id)
+                return session
 
-        # Create new session
+        # No session_id provided — create a brand-new session
         session = ChatSession(user=user)
         session.generate_title_from_message(prompt)
         session.save()
