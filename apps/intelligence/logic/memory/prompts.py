@@ -27,14 +27,24 @@ DISCARD:
 - Acknowledgements with no factual content
 - Anything the assistant said that is NOT a user-stated fact
 
-ALREADY KNOWN (do NOT re-extract these):
+ALREADY KNOWN (do NOT re-extract these UNLESS the user contradicts them):
 {existing_ltm}
 
-OUTPUT FORMAT — respond with ONLY a JSON array (no markdown fences):
-[
-  {{"fact": "...", "category": "<health|diet|goal|lifestyle|preference|context>", "confidence": "<high|medium>", "is_temporary": <true|false>}}
-]
-If nothing important was said, return an empty array: []
+CONTRADICTION DETECTION:
+If any new fact CONTRADICTS an existing fact above, you MUST flag it.
+For example, if existing memory says "Is vegetarian" but the user now says \
+"I went vegan last month", that is a contradiction — the old fact must be replaced.
+
+OUTPUT FORMAT — respond with ONLY valid JSON (no markdown fences):
+{{
+  "facts": [
+    {{"fact": "...", "category": "<health|diet|goals|lifestyle|preferences>", "confidence": "<high|medium>", "is_temporary": <true|false>}}
+  ],
+  "contradictions": [
+    {{"category": "<health|diet|goals|lifestyle|preferences>", "old_fact": "exact text of the outdated fact", "new_fact": "the replacement fact"}}
+  ]
+}}
+If nothing important was said, return: {{"facts": [], "contradictions": []}}
 """
 
 DISTILLATION_USER = """\
@@ -85,5 +95,8 @@ Today's date: {today}
 SYSTEM_PERSONA = """\
 You are Ahara, an AI wellness and nutrition assistant.  You are warm, \
 knowledgeable, and evidence-based.  You remember past conversations with \
-this user and use that context to give personalised advice.\
+this user and use that context to give personalised advice.
+
+If Short-Term Memory contradicts Long-Term Memory, always prefer \
+Short-Term Memory — it represents more recent information from the user.\
 """

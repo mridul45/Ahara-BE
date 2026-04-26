@@ -5,6 +5,10 @@ Takes raw conversation turns that have been evicted from Working Memory
 and uses a cheap LLM call (Gemini Flash) to extract only the important,
 persistent facts.  Trivial chatter is discarded.
 
+The distiller also detects **contradictions** with existing Long-Term
+Memory and patches them immediately — so the user's profile stays
+accurate without waiting for the next consolidation cycle.
+
 The distiller is **fail-safe**: if the LLM call times out or returns
 invalid JSON, the raw messages are parked in a pending queue for retry.
 """
@@ -14,12 +18,14 @@ from __future__ import annotations
 import json
 import logging
 import time
+from datetime import date
 from typing import Any
 
 from django.conf import settings
 from google import genai
 
 from .config import mem_cfg
+from .long_term import LongTermStore
 from .prompts import DISTILLATION_SYSTEM, DISTILLATION_USER
 from .short_term import ShortTermStore
 from .working import WorkingMemoryBuffer
@@ -49,7 +55,7 @@ class MemoryDistiller:
         session_id : str
             Current session identifier.
         existing_ltm : dict, optional
-            Current long-term memory (so we don't re-extract known facts).
+            Current long-term memory (for contradiction detection).
 
         Returns
         -------
@@ -89,9 +95,9 @@ class MemoryDistiller:
             raw_text = response.text.strip()
 
             # ── 4. Parse JSON (with retry on failure) ─────────────────
-            facts = MemoryDistiller._parse_facts(raw_text)
+            result = MemoryDistiller._parse_response(raw_text)
 
-            if facts is None:
+            if result is None:
                 # Retry once with stricter instructions
                 logger.warning(
                     "memory.distiller user=%s action=parse_retry raw_len=%d",
@@ -101,27 +107,37 @@ class MemoryDistiller:
                 retry_prompt = (
                     f"{system_prompt}\n\n{user_prompt}\n\n"
                     "IMPORTANT: Your previous response was not valid JSON. "
-                    "Respond with ONLY a JSON array. No markdown, no explanation."
+                    "Respond with ONLY the JSON object. No markdown, no explanation."
                 )
                 response = client.models.generate_content(
                     model=mem_cfg("DISTILLATION_MODEL"),
                     contents=retry_prompt,
                 )
                 raw_text = response.text.strip()
-                facts = MemoryDistiller._parse_facts(raw_text)
+                result = MemoryDistiller._parse_response(raw_text)
 
-            if facts is None:
+            if result is None:
                 raise ValueError(f"Failed to parse distillation output: {raw_text[:200]}")
 
-            # ── 5. Store in Short-Term Memory ─────────────────────────
+            facts, contradictions = result
+
+            # ── 5. Apply contradictions to LTM immediately ────────────
+            if contradictions and existing_ltm:
+                MemoryDistiller._apply_contradictions(
+                    user_id, existing_ltm, contradictions,
+                )
+
+            # ── 6. Store facts in Short-Term Memory ───────────────────
             ShortTermStore.store(user_id, facts, session_id)
 
             if mem_cfg("ENABLE_MEMORY_LOGGING"):
                 logger.info(
-                    "memory.distiller user=%s action=distill input_pairs=%d facts_extracted=%d model=%s latency_ms=%d",
+                    "memory.distiller user=%s action=distill input_pairs=%d "
+                    "facts_extracted=%d contradictions=%d model=%s latency_ms=%d",
                     user_id,
                     len(all_turns),
                     len(facts),
+                    len(contradictions),
                     mem_cfg("DISTILLATION_MODEL"),
                     elapsed_ms,
                 )
@@ -142,13 +158,15 @@ class MemoryDistiller:
     # ── Helpers ──────────────────────────────────────────────────────
 
     @staticmethod
-    def _parse_facts(raw: str) -> list[dict] | None:
+    def _parse_response(raw: str) -> tuple[list[dict], list[dict]] | None:
         """
-        Attempt to parse the LLM output as a JSON array of fact objects.
+        Parse the LLM output into (facts, contradictions).
+
+        Handles both the new object format and the legacy array format
+        for backwards compatibility.
 
         Returns ``None`` on failure so the caller can decide whether to retry.
         """
-        # Strip markdown fences if the model wraps output
         text = raw.strip()
         if text.startswith("```"):
             lines = text.split("\n")
@@ -160,12 +178,26 @@ class MemoryDistiller:
         except (json.JSONDecodeError, TypeError):
             return None
 
-        if not isinstance(parsed, list):
-            return None
+        # ── New format: {"facts": [...], "contradictions": [...]}
+        if isinstance(parsed, dict) and "facts" in parsed:
+            facts = MemoryDistiller._validate_facts(parsed.get("facts", []))
+            contradictions = MemoryDistiller._validate_contradictions(
+                parsed.get("contradictions", [])
+            )
+            return (facts, contradictions)
 
-        # Validate minimal structure
+        # ── Legacy format: plain array of facts
+        if isinstance(parsed, list):
+            facts = MemoryDistiller._validate_facts(parsed)
+            return (facts, [])
+
+        return None
+
+    @staticmethod
+    def _validate_facts(items: list) -> list[dict]:
+        """Validate and normalise a list of fact objects."""
         valid: list[dict] = []
-        for item in parsed:
+        for item in items:
             if isinstance(item, dict) and "fact" in item and "category" in item:
                 valid.append({
                     "fact": str(item["fact"]),
@@ -174,3 +206,84 @@ class MemoryDistiller:
                     "is_temporary": bool(item.get("is_temporary", False)),
                 })
         return valid
+
+    @staticmethod
+    def _validate_contradictions(items: list) -> list[dict]:
+        """Validate a list of contradiction objects."""
+        valid: list[dict] = []
+        for item in items:
+            if (
+                isinstance(item, dict)
+                and "category" in item
+                and "old_fact" in item
+                and "new_fact" in item
+            ):
+                valid.append({
+                    "category": str(item["category"]),
+                    "old_fact": str(item["old_fact"]),
+                    "new_fact": str(item["new_fact"]),
+                })
+        return valid
+
+    @staticmethod
+    def _apply_contradictions(
+        user_id: int,
+        existing_ltm: dict,
+        contradictions: list[dict],
+    ) -> None:
+        """
+        Patch LTM by replacing contradicted facts in-place.
+
+        Uses fuzzy matching (substring containment) so the LLM doesn't
+        have to reproduce the exact stored text character-for-character.
+        """
+        patched = False
+        today = str(date.today())
+
+        for contradiction in contradictions:
+            category = contradiction["category"]
+            old_fact_text = contradiction["old_fact"].lower().strip()
+            new_fact_text = contradiction["new_fact"]
+
+            facts = existing_ltm.get(category, [])
+            replaced = False
+
+            for i, fact_entry in enumerate(facts):
+                stored_text = (
+                    fact_entry.get("fact", "").lower().strip()
+                    if isinstance(fact_entry, dict)
+                    else str(fact_entry).lower().strip()
+                )
+
+                # Fuzzy match: either the stored text contains the old,
+                # or the old contains the stored text
+                if old_fact_text in stored_text or stored_text in old_fact_text:
+                    facts[i] = {"fact": new_fact_text, "since": today}
+                    replaced = True
+                    patched = True
+                    logger.info(
+                        "memory.distiller user=%s action=patch_ltm "
+                        "category=%s old='%s' new='%s'",
+                        user_id,
+                        category,
+                        stored_text[:60],
+                        new_fact_text[:60],
+                    )
+                    break
+
+            # If old fact wasn't found, append the new fact anyway
+            if not replaced:
+                facts.append({"fact": new_fact_text, "since": today})
+                existing_ltm[category] = facts
+                patched = True
+                logger.info(
+                    "memory.distiller user=%s action=append_contradicted_fact "
+                    "category=%s fact='%s'",
+                    user_id,
+                    category,
+                    new_fact_text[:60],
+                )
+
+        if patched:
+            LongTermStore.save(user_id, existing_ltm)
+
