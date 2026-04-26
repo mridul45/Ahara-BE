@@ -1,8 +1,11 @@
 # content/admin.py
-from django.contrib import admin,messages
+from django.contrib import admin, messages
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
-from .models import Playlist,Video
+from .models import (
+    Playlist, Video, Session, Recipe, Deal, DailyTip,
+    Category, UserDailyStat, UserPlanItem,
+)
 from django.utils import timezone
 
 
@@ -350,3 +353,122 @@ class VideoAdmin(admin.ModelAdmin):
                 obj.video.url,
             )
         return self.empty_value_display
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# SESSION ADMIN
+# ═══════════════════════════════════════════════════════════════════════
+
+@admin.register(Session)
+class SessionAdmin(admin.ModelAdmin):
+    list_display = ("title", "category", "difficulty", "duration_minutes",
+                    "calories_estimate", "is_published", "is_featured", "order", "updated_at")
+    list_display_links = ("title",)
+    list_editable = ("is_published", "is_featured", "order")
+    list_filter = ("category", "difficulty", "is_published", "is_featured")
+    search_fields = ("title", "description")
+    ordering = ("order", "-created_at")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# RECIPE ADMIN
+# ═══════════════════════════════════════════════════════════════════════
+
+@admin.register(Recipe)
+class RecipeAdmin(admin.ModelAdmin):
+    list_display = ("title", "meal_type", "diet_tag", "cuisine", "calories",
+                    "prep_time_minutes", "cook_time_minutes", "servings",
+                    "is_published", "is_featured", "created_at")
+    list_display_links = ("title",)
+    list_editable = ("is_published", "is_featured")
+    list_filter = ("meal_type", "diet_tag", "cuisine", "difficulty", "is_published")
+    search_fields = ("title", "description", "cuisine")
+    ordering = ("-created_at",)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# DEAL ADMIN
+# ═══════════════════════════════════════════════════════════════════════
+
+@admin.register(Deal)
+class DealAdmin(admin.ModelAdmin):
+    list_display = ("item_name", "emoji", "category", "price", "original_price",
+                    "location", "is_active", "expires_at", "created_at")
+    list_display_links = ("item_name",)
+    list_editable = ("is_active",)
+    list_filter = ("category", "is_active")
+    search_fields = ("item_name", "description", "location")
+    ordering = ("-created_at",)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# DAILY TIP ADMIN
+# ═══════════════════════════════════════════════════════════════════════
+
+@admin.register(DailyTip)
+class DailyTipAdmin(admin.ModelAdmin):
+    list_display = ("short_text", "category", "attribution", "scheduled_date",
+                    "is_active", "created_at")
+    list_display_links = ("short_text",)
+    list_editable = ("is_active",)
+    list_filter = ("category", "is_active")
+    search_fields = ("text", "attribution")
+    ordering = ("-created_at",)
+
+    @admin.display(description=_("Text"))
+    def short_text(self, obj):
+        return (obj.text[:70] + "…") if len(obj.text) > 73 else obj.text
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# CATEGORY ADMIN
+# ═══════════════════════════════════════════════════════════════════════
+
+@admin.register(Category)
+class CategoryAdmin(admin.ModelAdmin):
+    list_display = ("name", "icon_name", "color_swatch", "item_count",
+                    "is_active", "order")
+    list_display_links = ("name",)
+    list_editable = ("is_active", "order", "item_count")
+    search_fields = ("name",)
+    ordering = ("order", "name")
+
+    @admin.display(description=_("Color"))
+    def color_swatch(self, obj):
+        return format_html(
+            '<span style="display:inline-block;width:18px;height:18px;'
+            'border-radius:4px;background:{};border:1px solid var(--border-color);'
+            'vertical-align:middle;"></span> {}',
+            obj.color_hex, obj.color_hex,
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# USER DAILY STAT ADMIN
+# ═══════════════════════════════════════════════════════════════════════
+
+@admin.register(UserDailyStat)
+class UserDailyStatAdmin(admin.ModelAdmin):
+    list_display = ("user", "date", "calories_consumed", "calories_burned",
+                    "water_glasses", "heart_rate_avg", "steps",
+                    "streak_days", "practice_minutes")
+    list_filter = ("date",)
+    search_fields = ("user__email", "user__username")
+    ordering = ("-date",)
+    raw_id_fields = ("user",)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# USER PLAN ITEM ADMIN
+# ═══════════════════════════════════════════════════════════════════════
+
+@admin.register(UserPlanItem)
+class UserPlanItemAdmin(admin.ModelAdmin):
+    list_display = ("user", "date", "time", "title", "subtitle",
+                    "is_done", "order")
+    list_display_links = ("title",)
+    list_editable = ("is_done", "order")
+    list_filter = ("date", "is_done")
+    search_fields = ("title", "user__email", "user__username")
+    ordering = ("date", "order", "time")
+    raw_id_fields = ("user", "session")
