@@ -91,3 +91,44 @@ class ChatMessageSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = fields
+
+
+# ═════════════════════════════════════════════════════════════════════════
+# Model Memory — User-facing memory inspection & editing
+# ═════════════════════════════════════════════════════════════════════════
+
+class MemoryUpdateSerializer(serializers.Serializer):
+    """
+    Validates PATCH /api/intelligence/memory/ requests.
+
+    Supported actions:
+        update   — Edit a fact.  Requires category, index, fact.
+        delete   — Remove a fact.  Requires category, index.
+        clear_all — Wipe the entire long-term memory profile.
+    """
+
+    ACTION_CHOICES = ("update", "delete", "clear_all")
+    VALID_CATEGORIES = ("health", "diet", "goals", "lifestyle", "preferences")
+
+    action = serializers.ChoiceField(choices=ACTION_CHOICES)
+    category = serializers.ChoiceField(choices=VALID_CATEGORIES, required=False)
+    index = serializers.IntegerField(min_value=0, required=False)
+    fact = serializers.CharField(max_length=500, required=False)
+
+    def validate(self, attrs):
+        action = attrs.get("action")
+
+        if action == "update":
+            if "category" not in attrs or "index" not in attrs or "fact" not in attrs:
+                raise serializers.ValidationError(
+                    "action='update' requires 'category', 'index', and 'fact'."
+                )
+
+        elif action == "delete":
+            if "category" not in attrs or "index" not in attrs:
+                raise serializers.ValidationError(
+                    "action='delete' requires 'category' and 'index'."
+                )
+
+        # clear_all needs no extra fields
+        return attrs

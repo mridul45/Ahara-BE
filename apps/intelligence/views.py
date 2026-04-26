@@ -16,6 +16,7 @@ from .serializers import (
     AskGeminiSerializer,
     ChatSessionDetailSerializer,
     ChatSessionListSerializer,
+    MemoryUpdateSerializer,
 )
 from .logic.ved_vyas import VedVyas
 from .logic.memory import MemoryManager
@@ -36,6 +37,8 @@ class IntelligenceViewSet(viewsets.GenericViewSet):
         GET    /api/intelligence/sessions/               – List chat sessions
         GET    /api/intelligence/sessions/<uuid>/        – Get session detail
         DELETE /api/intelligence/sessions/<uuid>/        – Archive a session
+        GET    /api/intelligence/memory/                 – View LTM profile
+        PATCH  /api/intelligence/memory/                 – Edit LTM profile
     """
 
     serializer_class = AskGeminiSerializer
@@ -45,6 +48,7 @@ class IntelligenceViewSet(viewsets.GenericViewSet):
 
     serializer_action_classes = {
         "ask_gemini": AskGeminiSerializer,
+        "update_memory": MemoryUpdateSerializer,
     }
     permission_action_classes = {
         "ask_gemini": [IsAuthenticated],
@@ -52,6 +56,8 @@ class IntelligenceViewSet(viewsets.GenericViewSet):
         "list_sessions": [IsAuthenticated],
         "get_session": [IsAuthenticated],
         "delete_session": [IsAuthenticated],
+        "get_memory": [IsAuthenticated],
+        "update_memory": [IsAuthenticated],
     }
     authentication_action_classes = {
         "ask_gemini": [JWTAuthentication],
@@ -59,6 +65,8 @@ class IntelligenceViewSet(viewsets.GenericViewSet):
         "list_sessions": [JWTAuthentication],
         "get_session": [JWTAuthentication],
         "delete_session": [JWTAuthentication],
+        "get_memory": [JWTAuthentication],
+        "update_memory": [JWTAuthentication],
     }
     throttle_action_classes = {
         "ask_gemini": [],
@@ -66,6 +74,8 @@ class IntelligenceViewSet(viewsets.GenericViewSet):
         "list_sessions": [],
         "get_session": [],
         "delete_session": [],
+        "get_memory": [],
+        "update_memory": [],
     }
 
     def initialize_request(self, request, *args, **kwargs):
@@ -444,3 +454,136 @@ class IntelligenceViewSet(viewsets.GenericViewSet):
             lines.append(f"{role_label}: {msg.content}")
 
         return "\n".join(lines)
+
+    # ═══════════════════════════════════════════════════════════════════
+    # MEMORY — User-facing Long-Term Memory inspection & editing
+    # ═══════════════════════════════════════════════════════════════════
+
+    @action(detail=False, methods=["get"], url_path="memory", url_name="get_memory")
+    def get_memory(self, request, *args, **kwargs):
+        """
+        GET /api/intelligence/memory/
+
+        Returns the user's Long-Term Memory profile, organised by category.
+        Each category contains a list of facts with their discovery dates.
+
+        Response:
+        {
+            "data": {
+                "health": [{"fact": "...", "since": "2024-01-15"}, ...],
+                "diet": [...],
+                "goals": [...],
+                "lifestyle": [...],
+                "preferences": [...]
+            }
+        }
+        """
+        from .logic.memory.long_term import LongTermStore
+
+        ltm = LongTermStore.load(request.user.id)
+
+        # Ensure all 5 categories exist in the response (even if empty)
+        categories = ("health", "diet", "goals", "lifestyle", "preferences")
+        normalised: dict = {}
+        for cat in categories:
+            facts = ltm.get(cat, [])
+            # Ensure each fact has the expected structure
+            normalised[cat] = [
+                {
+                    "fact": f.get("fact", str(f)) if isinstance(f, dict) else str(f),
+                    "since": f.get("since", "unknown") if isinstance(f, dict) else "unknown",
+                }
+                for f in facts
+            ]
+
+        return api_response(
+            request,
+            status_code=status.HTTP_200_OK,
+            data=normalised,
+        )
+
+    @action(detail=False, methods=["patch"], url_path="memory/update", url_name="update_memory")
+    def update_memory(self, request, *args, **kwargs):
+        """
+        PATCH /api/intelligence/memory/update/
+
+        Edit, delete, or clear long-term memory facts.
+
+        Body examples:
+            {"action": "update", "category": "health", "index": 0, "fact": "Knee is recovered"}
+            {"action": "delete", "category": "health", "index": 0}
+            {"action": "clear_all"}
+        """
+        from .logic.memory.long_term import LongTermStore
+
+        serializer = MemoryUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        action_type = serializer.validated_data["action"]
+        user_id = request.user.id
+        ltm = LongTermStore.load(user_id)
+
+        if action_type == "clear_all":
+            LongTermStore.save(user_id, {})
+            logger.info("memory.user_edit user=%s action=clear_all", user_id)
+            return api_response(
+                request,
+                status_code=status.HTTP_200_OK,
+                data={},
+                message="All memory cleared.",
+            )
+
+        category = serializer.validated_data["category"]
+        index = serializer.validated_data["index"]
+        facts = ltm.get(category, [])
+
+        if index >= len(facts):
+            return api_response(
+                request,
+                status_code=status.HTTP_400_BAD_REQUEST,
+                errors={"detail": f"Index {index} out of range for '{category}' (has {len(facts)} facts)."},
+            )
+
+        if action_type == "update":
+            new_fact_text = serializer.validated_data["fact"]
+            old_fact = facts[index]
+            # Preserve the 'since' date, update the fact text
+            if isinstance(old_fact, dict):
+                old_fact["fact"] = new_fact_text
+            else:
+                facts[index] = {"fact": new_fact_text, "since": "unknown"}
+            logger.info(
+                "memory.user_edit user=%s action=update category=%s index=%d",
+                user_id, category, index,
+            )
+
+        elif action_type == "delete":
+            removed = facts.pop(index)
+            logger.info(
+                "memory.user_edit user=%s action=delete category=%s index=%d fact='%s'",
+                user_id, category, index,
+                removed.get("fact", "")[:60] if isinstance(removed, dict) else str(removed)[:60],
+            )
+
+        ltm[category] = facts
+        LongTermStore.save(user_id, ltm)
+
+        # Return the updated profile
+        categories = ("health", "diet", "goals", "lifestyle", "preferences")
+        normalised = {
+            cat: [
+                {
+                    "fact": f.get("fact", str(f)) if isinstance(f, dict) else str(f),
+                    "since": f.get("since", "unknown") if isinstance(f, dict) else "unknown",
+                }
+                for f in ltm.get(cat, [])
+            ]
+            for cat in categories
+        }
+
+        return api_response(
+            request,
+            status_code=status.HTTP_200_OK,
+            data=normalised,
+            message="Memory updated.",
+        )
