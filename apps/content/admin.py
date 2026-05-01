@@ -5,6 +5,7 @@ from django.utils.translation import gettext_lazy as _
 from .models import (
     Playlist, Video, Session, Recipe, Deal, DailyTip,
     Category, UserDailyStat, UserPlanItem,
+    BreathworkExercise, AmbientSound, SearchConfig,
 )
 from django.utils import timezone
 
@@ -472,3 +473,56 @@ class UserPlanItemAdmin(admin.ModelAdmin):
     search_fields = ("title", "user__email", "user__username")
     ordering = ("date", "order", "time")
     raw_id_fields = ("user", "session")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# BREATHWORK EXERCISE ADMIN
+# ═══════════════════════════════════════════════════════════════════════
+
+@admin.register(BreathworkExercise)
+class BreathworkExerciseAdmin(admin.ModelAdmin):
+    list_display = ("title", "pattern", "duration", "color_swatch", "is_active", "order")
+    list_display_links = ("title",)
+    list_editable = ("is_active", "order")
+    search_fields = ("title", "pattern")
+    ordering = ("order", "title")
+
+    @admin.display(description=_("Color"))
+    def color_swatch(self, obj):
+        return format_html(
+            '<span style="display:inline-block;width:18px;height:18px;'
+            'border-radius:4px;background:{};border:1px solid var(--border-color);'
+            'vertical-align:middle;"></span> {}',
+            obj.color_hex, obj.color_hex,
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# AMBIENT SOUND ADMIN
+# ═══════════════════════════════════════════════════════════════════════
+
+@admin.register(AmbientSound)
+class AmbientSoundAdmin(admin.ModelAdmin):
+    list_display = ("name", "emoji", "color_swatch", "is_active", "order")
+    list_display_links = ("name",)
+    list_editable = ("is_active", "order")
+    search_fields = ("name",)
+    ordering = ("order", "name")
+
+    @admin.display(description=_("Color"))
+    def color_swatch(self, obj):
+        return format_html(
+            '<span style="display:inline-block;width:18px;height:18px;'
+            'border-radius:4px;background:{};border:1px solid var(--border-color);'
+            'vertical-align:middle;"></span> {}',
+            obj.color_hex, obj.color_hex,
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# SEARCH CONFIG ADMIN
+# ═══════════════════════════════════════════════════════════════════════
+
+@admin.register(SearchConfig)
+class SearchConfigAdmin(admin.ModelAdmin):
+    list_display = ("__str__", "updated_at")
