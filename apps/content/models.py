@@ -641,3 +641,63 @@ class UserPlanItem(models.Model):
 
     def __str__(self):
         return f"{self.time:%H:%M} — {self.title}"
+# ═══════════════════════════════════════════════════════════════════════
+# BreathworkExercise — UI configurations for breathwork
+# ═══════════════════════════════════════════════════════════════════════
+
+class BreathworkExercise(models.Model):
+    title = models.CharField(_("Title"), max_length=100)
+    pattern = models.CharField(_("Pattern"), max_length=100)
+    duration = models.CharField(_("Duration"), max_length=50)
+    color_hex = models.CharField(_("Color Hex"), max_length=9, default="#4A7C59")
+    icon_name = models.CharField(_("Icon Name"), max_length=100, default="Air")
+    
+    order = models.PositiveIntegerField(_("Display Order"), default=0)
+    is_active = models.BooleanField(_("Active"), default=True)
+
+    class Meta:
+        verbose_name = _("Breathwork Exercise")
+        verbose_name_plural = _("Breathwork Exercises")
+        ordering = ["order"]
+
+    def __str__(self):
+        return self.title
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# AmbientSound — UI configurations for ambient sounds
+# ═══════════════════════════════════════════════════════════════════════
+
+class AmbientSound(models.Model):
+    name = models.CharField(_("Name"), max_length=100)
+    emoji = models.CharField(_("Emoji"), max_length=10)
+    color_hex = models.CharField(_("Color Hex"), max_length=9, default="#4A7C59")
+    
+    order = models.PositiveIntegerField(_("Display Order"), default=0)
+    is_active = models.BooleanField(_("Active"), default=True)
+
+    class Meta:
+        verbose_name = _("Ambient Sound")
+        verbose_name_plural = _("Ambient Sounds")
+        ordering = ["order"]
+
+    def __str__(self):
+        return self.name
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# SearchConfig — Global configurations for search screen
+# ═══════════════════════════════════════════════════════════════════════
+
+class SearchConfig(models.Model):
+    popular_searches = models.JSONField(_("Popular Searches"), default=list)
+    filter_chips = models.JSONField(_("Filter Chips"), default=list)
+    
+    is_active = models.BooleanField(_("Active"), default=True)
+
+    class Meta:
+        verbose_name = _("Search Configuration")
+        verbose_name_plural = _("Search Configurations")
+
+    def __str__(self):
+        return "Search Config"

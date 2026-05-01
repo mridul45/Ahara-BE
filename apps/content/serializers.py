@@ -428,3 +428,47 @@ class UserPlanItemWriteSerializer(serializers.ModelSerializer):
             "tips", "icon_name", "color_hex",
             "is_done", "order", "session",
         ]
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# BreathworkExercise
+# ═══════════════════════════════════════════════════════════════════════
+
+class BreathworkExerciseSerializer(serializers.ModelSerializer):
+    class Meta:
+        from .models import BreathworkExercise
+        model = BreathworkExercise
+        fields = [
+            "id", "title", "pattern", "duration", "color_hex",
+            "icon_name", "order", "is_active"
+        ]
+        read_only_fields = fields
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# AmbientSound
+# ═══════════════════════════════════════════════════════════════════════
+
+class AmbientSoundSerializer(serializers.ModelSerializer):
+    class Meta:
+        from .models import AmbientSound
+        model = AmbientSound
+        fields = [
+            "id", "name", "emoji", "color_hex", "order", "is_active"
+        ]
+        read_only_fields = fields
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# SearchConfig
+# ═══════════════════════════════════════════════════════════════════════
+
+class SearchConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        from .models import SearchConfig
+        model = SearchConfig
+        fields = [
+            "id", "popular_searches", "filter_chips", "is_active"
+        ]
+        read_only_fields = fields
+

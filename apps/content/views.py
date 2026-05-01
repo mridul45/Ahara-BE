@@ -33,6 +33,9 @@ from .models import (
     UserDailyStat,
     UserPlanItem,
     Video,
+    BreathworkExercise,
+    AmbientSound,
+    SearchConfig,
 )
 from .serializers import (
     CategoryReadSerializer,
@@ -52,6 +55,9 @@ from .serializers import (
     UserPlanItemReadSerializer,
     UserPlanItemWriteSerializer,
     VideoReadSerializer,
+    BreathworkExerciseSerializer,
+    AmbientSoundSerializer,
+    SearchConfigSerializer,
 )
 
 
@@ -111,6 +117,11 @@ class ContentViewSet(viewsets.GenericViewSet):
         "plan_today": UserPlanItemReadSerializer,
         "plan_item_done": UserPlanItemWriteSerializer,
         "plan_create": UserPlanItemWriteSerializer,
+        # New
+        "stats_weekly": UserDailyStatSerializer,
+        "breathwork": BreathworkExerciseSerializer,
+        "ambient_sounds": AmbientSoundSerializer,
+        "search_config": SearchConfigSerializer,
     }
 
     # ---- Per-action permission map ----
@@ -145,6 +156,10 @@ class ContentViewSet(viewsets.GenericViewSet):
         "plan_today": [IsAuthenticated],
         "plan_item_done": [IsAuthenticated],
         "plan_create": [IsAuthenticated],
+        "stats_weekly": [IsAuthenticated],
+        "breathwork": [IsAuthenticated],
+        "ambient_sounds": [IsAuthenticated],
+        "search_config": [IsAuthenticated],
     }
 
     # ---- Per-action authentication map ----
@@ -175,6 +190,12 @@ class ContentViewSet(viewsets.GenericViewSet):
         "plan_today": lambda self, r: UserPlanItem.objects.filter(
             user=r.user, date=date.today()
         ).order_by("order", "time"),
+        "stats_weekly": lambda self, r: UserDailyStat.objects.filter(
+            user=r.user
+        ).order_by("-date")[:7],
+        "breathwork": lambda self, r: BreathworkExercise.objects.filter(is_active=True).order_by("order"),
+        "ambient_sounds": lambda self, r: AmbientSound.objects.filter(is_active=True).order_by("order"),
+        "search_config": lambda self, r: SearchConfig.objects.filter(is_active=True),
     }
 
     # ── Map helpers ─────────────────────────────────────────────────
@@ -546,3 +567,56 @@ class ContentViewSet(viewsets.GenericViewSet):
         ser.save(user=request.user)
         return api_response(request, data=ser.data, status_code=status.HTTP_201_CREATED,
                             message="Plan item created")
+
+    # ════════════════════════════════════════════════════════════════
+    # NEW ENDPOINTS FOR UI DYNAMIC DATA
+    # ════════════════════════════════════════════════════════════════
+
+    @action(detail=False, methods=["get"], url_path="stats/weekly", url_name="stats_weekly")
+    def stats_weekly(self, request, *args, **kwargs):
+        """Get stats for the last 7 days for the authenticated user."""
+        qs = self.get_queryset()
+        ser = self.get_serializer(qs, many=True, context={"request": request})
+        return api_response(request, data={"items": ser.data, "count": len(ser.data)},
+                            status_code=status.HTTP_200_OK,
+                            message="Weekly stats fetched successfully")
+
+    @action(detail=False, methods=["get"], url_path="breathwork", url_name="breathwork")
+    def breathwork(self, request, *args, **kwargs):
+        """Get list of breathwork exercises."""
+        qs = self.get_queryset()
+        ser = self.get_serializer(qs, many=True, context={"request": request})
+        return api_response(request, data={"items": ser.data, "count": len(ser.data)},
+                            status_code=status.HTTP_200_OK,
+                            message="Breathwork exercises fetched successfully")
+
+    @action(detail=False, methods=["get"], url_path="ambient-sounds", url_name="ambient_sounds")
+    def ambient_sounds(self, request, *args, **kwargs):
+        """Get list of ambient sounds."""
+        qs = self.get_queryset()
+        ser = self.get_serializer(qs, many=True, context={"request": request})
+        return api_response(request, data={"items": ser.data, "count": len(ser.data)},
+                            status_code=status.HTTP_200_OK,
+                            message="Ambient sounds fetched successfully")
+
+    @action(detail=False, methods=["get"], url_path="search-config", url_name="search_config")
+    def search_config(self, request, *args, **kwargs):
+        """Get global search configuration."""
+        qs = self.get_queryset()
+        config = qs.first()
+        if not config:
+            # Return some defaults if not found in the database
+            data = {
+                "popular_searches": [
+                    "Pranayama techniques", "High protein Indian meals",
+                    "Morning yoga routine", "Calorie deficit recipes"
+                ],
+                "filter_chips": ["All", "Yoga", "Nutrition", "Meditation", "Recipes", "Fitness", "Sleep"]
+            }
+        else:
+            ser = self.get_serializer(config, context={"request": request})
+            data = ser.data
+            
+        return api_response(request, data=data,
+                            status_code=status.HTTP_200_OK,
+                            message="Search configuration fetched successfully")
