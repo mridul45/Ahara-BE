@@ -57,6 +57,20 @@ if external_url:
 USE_X_FORWARDED_HOST = True
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
+# -------------------- Security headers --------------------
+# Prevent browsers from MIME-sniffing a response away from the declared content-type.
+SECURE_CONTENT_TYPE_NOSNIFF = True
+# Referrer policy — don't leak the full URL to third parties.
+SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
+# Permissions policy — deny access to sensitive browser features by default.
+PERMISSIONS_POLICY = {
+    "geolocation": [],
+    "microphone": [],
+    "camera": [],
+}
+# X-Frame-Options is set by XFrameOptionsMiddleware; default is DENY.
+X_FRAME_OPTIONS = "DENY"
+
 # CSRF cookie must be readable by JS to send X-CSRFToken from SPA
 CSRF_COOKIE_HTTPONLY = False
 
@@ -75,7 +89,14 @@ else:
 DATABASES = {
     "default": env.db("DATABASE_URL", default="postgres:///ahara"),
 }
-DATABASES["default"]["ATOMIC_REQUESTS"] = True
+# ATOMIC_REQUESTS is intentionally False here.
+# Streaming endpoints (AI ask, end-session) must NOT hold a DB transaction open
+# for the entire duration of a Gemini call. Instead, write endpoints that need
+# atomicity use @transaction.atomic explicitly.
+DATABASES["default"]["ATOMIC_REQUESTS"] = False
+# Keep connections open for up to 60 s so each request doesn't pay TCP
+# handshake overhead. Overridden to 0 in test.py for clean test isolation.
+DATABASES["default"]["CONN_MAX_AGE"] = env.int("CONN_MAX_AGE", default=60)
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # -------------------- URLS / WSGI --------------------
@@ -139,6 +160,7 @@ AUTH_PASSWORD_VALIDATORS = [
 # -------------------- Middleware --------------------
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
+    "utilities.request_id_middleware.RequestIdMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -232,9 +254,33 @@ DJANGO_ADMIN_FORCE_ALLAUTH = env.bool("DJANGO_ADMIN_FORCE_ALLAUTH", default=Fals
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "formatters": {"verbose": {"format": "%(levelname)s %(asctime)s %(module)s %(process)d %(thread)d %(message)s"}},
-    "handlers": {"console": {"level": "DEBUG", "class": "logging.StreamHandler", "formatter": "verbose"}},
+    "formatters": {
+        "verbose": {"format": "%(levelname)s %(asctime)s %(module)s %(process)d %(thread)d %(message)s"},
+    },
+    "filters": {
+        "slow_query": {
+            "()": "utilities.logging_filters.SlowQueryFilter",
+            "threshold_ms": env.int("SLOW_QUERY_THRESHOLD_MS", default=200),
+        },
+    },
+    "handlers": {
+        "console": {"level": "DEBUG", "class": "logging.StreamHandler", "formatter": "verbose"},
+        "slow_query_console": {
+            "level": "DEBUG",
+            "class": "logging.StreamHandler",
+            "formatter": "verbose",
+            "filters": ["slow_query"],
+        },
+    },
     "root": {"level": "INFO", "handlers": ["console"]},
+    "loggers": {
+        # Log SQL queries that exceed SLOW_QUERY_THRESHOLD_MS to the console.
+        "django.db.backends": {
+            "handlers": ["slow_query_console"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+    },
 }
 
 
@@ -283,6 +329,9 @@ REST_FRAMEWORK = {
         "login_user": "5/min",
         "verify_otp": "5/min",
         "verify_otp_user": "5/min",
+        # Gemini-backed endpoints — protect API cost budget
+        "ai_ask": "30/min",
+        "ai_end_session": "60/min",
     },
     "EXCEPTION_HANDLER": "utilities.response.unified_exception_handler",
     "DEFAULT_SCHEMA_CLASS": "utilities.schema.AppGroupAutoSchema",
@@ -393,6 +442,11 @@ REFRESH_COOKIE_KWARGS = {
 
 
 
+# -------------------- Upload limits --------------------
+# Prevents OOM/DoS from oversized POST bodies.
+DATA_UPLOAD_MAX_MEMORY_SIZE = env.int("DATA_UPLOAD_MAX_MEMORY_SIZE", default=2_621_440)   # 2.5 MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = env.int("FILE_UPLOAD_MAX_MEMORY_SIZE", default=5_242_880)   # 5 MB
+
 # -------------------- Your stuff --------------------
 IMAGEKIT_PUBLIC_KEY = env("IMAGEKIT_PUBLIC_KEY")
 IMAGEKIT_PRIVATE_KEY = env("IMAGEKIT_PRIVATE_KEY")
@@ -402,12 +456,34 @@ IMAGEKIT_URL_ENDPOINT = env("IMAGEKIT_URL_ENDPOINT")
 FEATURED_KEY = env("FEATURED_KEY", default="ahara:pl:featured:v1:default")
 FEATURED_TTL = env.int("FEATURED_TTL", default=60 * 60 * 6)
 
+CATEGORY_CACHE_KEY = env("CATEGORY_CACHE_KEY", default="ahara:categories:v1")
+CATEGORY_CACHE_TTL = env.int("CATEGORY_CACHE_TTL", default=60 * 60)  # 1 hour
+
+# Short-lived cache for search/filter list results. Prevents repeated LIKE
+# scans for the same query within the TTL window without risking stale content.
+SEARCH_CACHE_TTL = env.int("SEARCH_CACHE_TTL", default=60)  # 60 seconds
+
 GEMINI_API_KEY = env("GEMINI_API_KEY", default="YOUR API KEY HERE....")
 
 RESEND_API_KEY = env("RESEND_API_KEY", default="")
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="onboarding@resend.dev")
 
+# -------------------- Daily Tip --------------------
+# TTL for the pool of active unscheduled tip IDs stored in Redis.
+# Per-day tip selections expire automatically at midnight via _tip_cache_ttl().
+DAILY_TIP_POOL_TTL = env.int("DAILY_TIP_POOL_TTL", default=60 * 60)  # 1 hour
+
+# -------------------- Pagination --------------------
+PAGINATION = {
+    "PAGE_SIZE_DEFAULT": env.int("PAGINATION_PAGE_SIZE_DEFAULT", default=20),
+    "PAGE_SIZE_MAX": env.int("PAGINATION_PAGE_SIZE_MAX", default=100),
+}
+
 # -------------------- Memory System --------------------
+# TTL for the cached long-term memory profile per user.
+# Invalidated immediately on Memory.save() via post_save signal.
+MEMORY_LTM_CACHE_TTL = env.int("MEMORY_LTM_CACHE_TTL", default=60 * 60)  # 1 hour
+
 # Override any key to tune the 3-tier memory system.
 # See apps/intelligence/logic/memory/config.py for defaults.
 MEMORY_CONFIG = {

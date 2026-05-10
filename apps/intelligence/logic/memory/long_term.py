@@ -20,9 +20,12 @@ from __future__ import annotations
 import json
 import logging
 
+from django.conf import settings
+from django.core.cache import cache
 from django.db.models import F
 
 from apps.intelligence.models import Memory
+from utilities.cache_keys import memory_long_term
 from .config import mem_cfg
 
 logger = logging.getLogger("memory.ltm")
@@ -37,18 +40,28 @@ class LongTermStore:
 
     @staticmethod
     def load(user_id: int) -> dict:
-        """Return the current LTM dict, or an empty structure."""
+        """Return the current LTM dict, served from cache when available."""
+        cache_key = memory_long_term(user_id)
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         try:
             mem = Memory.objects.get(user_id=user_id)
         except Memory.DoesNotExist:
             return {}
-        return mem.long_term if isinstance(mem.long_term, dict) else {}
+
+        ltm = mem.long_term if isinstance(mem.long_term, dict) else {}
+        ttl = getattr(settings, "MEMORY_LTM_CACHE_TTL", 3600)
+        cache.set(cache_key, ltm, timeout=ttl)
+        return ltm
 
     # ── Write ────────────────────────────────────────────────────────
 
     @staticmethod
     def save(user_id: int, ltm: dict) -> None:
-        """Persist a new long-term memory profile."""
+        """Persist a new long-term memory profile and invalidate the read cache."""
+        cache.delete(memory_long_term(user_id))
         updated = Memory.objects.filter(user_id=user_id).update(
             long_term=ltm,
             version=F("version") + 1,

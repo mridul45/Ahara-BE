@@ -19,6 +19,7 @@ Usage in settings.py:
 """
 
 import logging
+import threading
 import time
 
 from django.core.cache.backends.locmem import LocMemCache
@@ -93,6 +94,11 @@ class FallbackCache:
         self._using_fallback = False
         self._last_failure: float = 0.0
 
+        # Hit/miss counters (thread-safe via lock).
+        self._lock = threading.Lock()
+        self._hits: int = 0
+        self._misses: int = 0
+
     # ──────────────────────────────────────────────
     #  Internal helpers
     # ──────────────────────────────────────────────
@@ -109,6 +115,15 @@ class FallbackCache:
                 "Redis cache unavailable (%s). Falling back to in-memory cache.",
                 exc,
             )
+            # Attempt Sentry capture if available.
+            try:
+                import sentry_sdk
+                sentry_sdk.capture_message(
+                    f"Redis cache unavailable: {exc}",
+                    level="warning",
+                )
+            except Exception:
+                pass
         self._using_fallback = True
         self._last_failure = time.monotonic()
 
@@ -143,13 +158,41 @@ class FallbackCache:
             if self._should_retry_redis():
                 result = self._try_redis("get", key, default=default, version=version)
                 if result is not _MISS:
+                    self._record_hit()
                     return result
-            return self._locmem.get(key, default=default, version=version)
+            value = self._locmem.get(key, default=default, version=version)
+        else:
+            result = self._try_redis("get", key, default=default, version=version)
+            if result is not _MISS:
+                self._record_hit()
+                return result
+            value = self._locmem.get(key, default=default, version=version)
 
-        result = self._try_redis("get", key, default=default, version=version)
-        if result is not _MISS:
-            return result
-        return self._locmem.get(key, default=default, version=version)
+        if value is None or value == default:
+            self._record_miss()
+        else:
+            self._record_hit()
+        return value
+
+    def _record_hit(self):
+        with self._lock:
+            self._hits += 1
+
+    def _record_miss(self):
+        with self._lock:
+            self._misses += 1
+
+    @property
+    def stats(self) -> dict:
+        """Return current hit/miss counters for monitoring."""
+        with self._lock:
+            total = self._hits + self._misses
+            return {
+                "hits": self._hits,
+                "misses": self._misses,
+                "hit_rate": round(self._hits / total, 4) if total else 0.0,
+                "using_fallback": self._using_fallback,
+            }
 
     def set(self, key, value, timeout=None, version=None):
         # Always write to locmem so fallback reads work.

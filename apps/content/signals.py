@@ -1,8 +1,10 @@
 import posixpath
+from django.conf import settings
+from django.core.cache import cache
 from django.db.models.signals import pre_save, post_save, post_delete
 from django.dispatch import receiver
 from utilities.imagekit_client import imagekit
-from .models import Video
+from .models import Category, Video
 
 
 def _get_file_id(folder, filename):
@@ -24,6 +26,16 @@ def _delete_from_imagekit(file_id, field_storage, field_name):
     except Exception:
         pass
 
+
+# ── Category cache invalidation ──────────────────────────────────────────────
+
+@receiver(post_save, sender=Category)
+@receiver(post_delete, sender=Category)
+def _invalidate_category_cache(sender, **kwargs):
+    cache.delete(settings.CATEGORY_CACHE_KEY)
+
+
+# ── Video ImageKit file lifecycle ─────────────────────────────────────────────
 
 @receiver(pre_save, sender=Video)
 def _remember_old_files(sender, instance, **kwargs):

@@ -9,11 +9,15 @@ All endpoints return the standardised ``api_response`` envelope.
 
 import hashlib
 import json
+import random
 import re
-from datetime import date
+from datetime import date, datetime, timedelta
+from datetime import time as dt_time
+from datetime import timezone as dt_tz
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from rest_framework import status, viewsets
@@ -21,6 +25,8 @@ from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
+from utilities.cache_keys import tip_scheduled, tip_random, tip_pool as _tip_pool_key, featured_lock
+from utilities.pagination import paginate_queryset
 from utilities.response import api_response
 
 from .models import (
@@ -62,6 +68,32 @@ from .serializers import (
 
 
 ETAG_SPLIT_RE = re.compile(r"\s*,\s*")
+
+
+def _tip_cache_ttl() -> int:
+    """Seconds remaining until UTC midnight — expires daily-tip cache entries at day rollover."""
+    now = datetime.now(dt_tz.utc)
+    midnight = datetime.combine(now.date() + timedelta(days=1), dt_time(0, 0), tzinfo=dt_tz.utc)
+    return max(1, int((midnight - now).total_seconds()))
+
+
+def _search_cache_key(resource: str, **params) -> str:
+    """
+    Build a deterministic Redis key for a filtered/paginated list request.
+
+    Only non-empty params are included so that missing and empty-string filters
+    produce the same key. Values are lowercased so 'Yoga' and 'yoga' hit the
+    same cache entry.
+
+    Example: _search_cache_key("recipe", q="paneer", page=1, page_size=20)
+             -> "ahara:search:recipe:a3f1c2d4e5b6a7f8"
+    """
+    normalized = json.dumps(
+        {k: str(v).lower().strip() for k, v in sorted(params.items()) if v not in (None, "")},
+        separators=(",", ":"),
+    )
+    digest = hashlib.sha256(normalized.encode()).hexdigest()[:16]
+    return f"ahara:search:{resource}:{digest}"
 
 
 class ContentViewSet(viewsets.GenericViewSet):
@@ -122,6 +154,7 @@ class ContentViewSet(viewsets.GenericViewSet):
         "breathwork": BreathworkExerciseSerializer,
         "ambient_sounds": AmbientSoundSerializer,
         "search_config": SearchConfigSerializer,
+        "batch_event": PlaylistReadSerializer,
     }
 
     # ---- Per-action permission map ----
@@ -160,6 +193,7 @@ class ContentViewSet(viewsets.GenericViewSet):
         "breathwork": [IsAuthenticated],
         "ambient_sounds": [IsAuthenticated],
         "search_config": [IsAuthenticated],
+        "batch_event": [IsAuthenticated],
     }
 
     # ---- Per-action authentication map ----
@@ -178,9 +212,9 @@ class ContentViewSet(viewsets.GenericViewSet):
         "playlist_rate": lambda self, r: Playlist.objects.all(),
         "playlist_ratings_reset": lambda self, r: Playlist.objects.all(),
         "playlist_impressions_reset": lambda self, r: Playlist.objects.all(),
-        "videos": lambda self, r: Video.objects.filter(is_published=True).order_by("-created_at"),
-        "video_retrieve": lambda self, r: Video.objects.filter(is_published=True),
-        "sessions": lambda self, r: Session.objects.filter(is_published=True).order_by("order", "-created_at"),
+        "videos": lambda self, r: Video.objects.filter(is_published=True).prefetch_related("playlist").order_by("-created_at"),
+        "video_retrieve": lambda self, r: Video.objects.filter(is_published=True).prefetch_related("playlist"),
+        "sessions": lambda self, r: Session.objects.select_related("video").filter(is_published=True).order_by("order", "-created_at"),
         "session_retrieve": lambda self, r: Session.objects.filter(is_published=True),
         "recipes": lambda self, r: Recipe.objects.filter(is_published=True).order_by("-created_at"),
         "recipe_retrieve": lambda self, r: Recipe.objects.filter(is_published=True),
@@ -240,10 +274,17 @@ class ContentViewSet(viewsets.GenericViewSet):
     @action(detail=False, methods=["get"], url_path="playlist", url_name="playlist")
     def playlist(self, request, *args, **kwargs):
         qs = self.get_queryset()
-        ser = self.get_serializer(qs, many=True, context={"request": request})
-        return api_response(request, data={"items": ser.data, "count": qs.count()},
-                            status_code=status.HTTP_200_OK, message="Playlists fetched successfully")
+        page_qs, meta = paginate_queryset(qs, request)
+        ser = self.get_serializer(page_qs, many=True, context={"request": request})
+        return api_response(
+            request,
+            data={"items": ser.data, "count": meta["total"]},
+            meta=meta,
+            status_code=status.HTTP_200_OK,
+            message="Playlists fetched successfully",
+        )
 
+    @transaction.atomic
     @action(detail=False, methods=["post"], url_path="playlist-create", url_name="playlist_create")
     def playlist_create(self, request, *args, **kwargs):
         ser = self.get_serializer(data=request.data, context={"request": request})
@@ -286,6 +327,74 @@ class ContentViewSet(viewsets.GenericViewSet):
         return api_response(request, data={"id": obj.pk, "clicks": obj.clicks,
                             "last_clicked_at": obj.last_clicked_at},
                             status_code=status.HTTP_200_OK, message="Click recorded successfully")
+
+    @transaction.atomic
+    @action(detail=False, methods=["post"], url_path="playlist/batch-event", url_name="batch_event")
+    def batch_event(self, request, *args, **kwargs):
+        """
+        POST /api/content/playlist/batch-event/
+
+        Record multiple playlist analytics events in a single request.
+        Replaces N individual click/impression calls from the mobile client.
+
+        Body:
+        {
+            "events": [
+                {"id": 1, "type": "click"},
+                {"id": 2, "type": "impression"},
+                {"id": 1, "type": "start"}
+            ]
+        }
+
+        Supported types: click, impression, start, complete
+        Unknown IDs and unknown types are silently skipped.
+        """
+        events = request.data.get("events")
+        if not isinstance(events, list) or not events:
+            return api_response(
+                request,
+                status_code=status.HTTP_400_BAD_REQUEST,
+                errors={"detail": "events must be a non-empty list"},
+            )
+
+        now = timezone.now()
+        # Aggregate counts per (playlist_id, event_type) to minimise DB round-trips.
+        from collections import defaultdict
+        counts: dict[tuple, int] = defaultdict(int)
+        valid_types = {"click", "impression", "start", "complete"}
+
+        for event in events[:200]:  # cap to prevent abuse
+            try:
+                pid = int(event.get("id"))
+                etype = str(event.get("type", "")).lower()
+            except (TypeError, ValueError):
+                continue
+            if etype in valid_types:
+                counts[(pid, etype)] += 1
+
+        from django.db.models import F
+        processed = 0
+        for (pid, etype), count in counts.items():
+            update_kwargs: dict = {}
+            if etype == "click":
+                update_kwargs = {"clicks": F("clicks") + count, "last_clicked_at": now}
+            elif etype == "impression":
+                update_kwargs = {"impressions": F("impressions") + count, "last_impressed_at": now}
+            elif etype == "start":
+                update_kwargs = {"starts": F("starts") + count, "last_started_at": now,
+                                 "last_interaction_at": now}
+            elif etype == "complete":
+                update_kwargs = {"completes": F("completes") + count, "last_completed_at": now,
+                                 "last_interaction_at": now}
+            rows = Playlist.objects.filter(pk=pid).update(**update_kwargs)
+            processed += rows
+
+        return api_response(
+            request,
+            data={"processed": processed},
+            status_code=status.HTTP_200_OK,
+            message="Batch events recorded",
+        )
 
     @action(detail=False, methods=["post"], url_path=r"playlist/(?P<pk>\d+)/rate", url_name="playlist_rate")
     def playlist_rate(self, request, pk=None, *args, **kwargs):
@@ -339,11 +448,20 @@ class ContentViewSet(viewsets.GenericViewSet):
     def featured_playlists(self, request, *args, **kwargs):
         blob = cache.get(settings.FEATURED_KEY)
         if not blob:
-            resp = api_response(request, data={"items": []},
-                                status_code=status.HTTP_404_NOT_FOUND,
-                                message="Featured playlists not present in cache")
-            resp["Cache-Control"] = "public, max-age=60, stale-while-revalidate=60"
-            return resp
+            # Acquire a short-lived lock so only one worker rebuilds the cache
+            # when the key expires under concurrent load (stampede prevention).
+            lock_acquired = cache.add(featured_lock(), "1", timeout=10)
+            if lock_acquired:
+                # We hold the lock — re-read (another worker may have populated
+                # it between our first get and the add).
+                blob = cache.get(settings.FEATURED_KEY)
+
+            if not blob:
+                resp = api_response(request, data={"items": []},
+                                    status_code=status.HTTP_404_NOT_FOUND,
+                                    message="Featured playlists not present in cache")
+                resp["Cache-Control"] = "public, max-age=60, stale-while-revalidate=60"
+                return resp
 
         payload = {"data": blob}
         raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -381,9 +499,15 @@ class ContentViewSet(viewsets.GenericViewSet):
             qs = qs.filter(content_genre__iexact=genre)
         if lang:
             qs = qs.filter(language__iexact=lang)
-        ser = self.get_serializer(qs, many=True, context={"request": request})
-        return api_response(request, data={"items": ser.data, "count": len(ser.data)},
-                            status_code=status.HTTP_200_OK, message="Videos fetched successfully")
+        page_qs, meta = paginate_queryset(qs, request)
+        ser = self.get_serializer(page_qs, many=True, context={"request": request})
+        return api_response(
+            request,
+            data={"items": ser.data, "count": meta["total"]},
+            meta=meta,
+            status_code=status.HTTP_200_OK,
+            message="Videos fetched successfully",
+        )
 
     @action(detail=False, methods=["get"], url_path=r"videos/(?P<pk>\d+)", url_name="video_retrieve")
     def video_retrieve(self, request, pk=None, *args, **kwargs):
@@ -401,16 +525,40 @@ class ContentViewSet(viewsets.GenericViewSet):
 
     @action(detail=False, methods=["get"], url_path="sessions", url_name="sessions")
     def sessions(self, request, *args, **kwargs):
-        qs = self.get_queryset()
         cat = request.query_params.get("category")
         diff = request.query_params.get("difficulty")
+        page = request.query_params.get("page", 1)
+        page_size = request.query_params.get("page_size", 20)
+
+        cache_key = _search_cache_key(
+            "session", category=cat, difficulty=diff, page=page, page_size=page_size,
+        )
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return api_response(
+                request,
+                data={"items": cached["items"], "count": cached["total"]},
+                meta=cached["meta"],
+                status_code=status.HTTP_200_OK,
+                message="Sessions fetched successfully",
+            )
+
+        qs = self.get_queryset()
         if cat:
             qs = qs.filter(category__iexact=cat)
         if diff:
             qs = qs.filter(difficulty__iexact=diff)
-        ser = self.get_serializer(qs, many=True, context={"request": request})
-        return api_response(request, data={"items": ser.data, "count": len(ser.data)},
-                            status_code=status.HTTP_200_OK, message="Sessions fetched successfully")
+        page_qs, meta = paginate_queryset(qs, request)
+        ser = self.get_serializer(page_qs, many=True, context={"request": request})
+        payload = {"items": list(ser.data), "meta": meta, "total": meta["total"]}
+        cache.set(cache_key, payload, timeout=settings.SEARCH_CACHE_TTL)
+        return api_response(
+            request,
+            data={"items": ser.data, "count": meta["total"]},
+            meta=meta,
+            status_code=status.HTTP_200_OK,
+            message="Sessions fetched successfully",
+        )
 
     @action(detail=False, methods=["get"], url_path=r"sessions/(?P<pk>\d+)", url_name="session_retrieve")
     def session_retrieve(self, request, pk=None, *args, **kwargs):
@@ -428,19 +576,43 @@ class ContentViewSet(viewsets.GenericViewSet):
 
     @action(detail=False, methods=["get"], url_path="recipes", url_name="recipes")
     def recipes(self, request, *args, **kwargs):
-        qs = self.get_queryset()
         meal = request.query_params.get("meal_type")
         diet = request.query_params.get("diet_tag")
         q = request.query_params.get("q")
+        page = request.query_params.get("page", 1)
+        page_size = request.query_params.get("page_size", 20)
+
+        cache_key = _search_cache_key(
+            "recipe", q=q, meal_type=meal, diet_tag=diet, page=page, page_size=page_size,
+        )
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return api_response(
+                request,
+                data={"items": cached["items"], "count": cached["total"]},
+                meta=cached["meta"],
+                status_code=status.HTTP_200_OK,
+                message="Recipes fetched successfully",
+            )
+
+        qs = self.get_queryset()
         if meal:
             qs = qs.filter(meal_type__iexact=meal)
         if diet:
             qs = qs.filter(diet_tag__iexact=diet)
         if q:
             qs = qs.filter(Q(title__icontains=q) | Q(description__icontains=q))
-        ser = self.get_serializer(qs, many=True, context={"request": request})
-        return api_response(request, data={"items": ser.data, "count": len(ser.data)},
-                            status_code=status.HTTP_200_OK, message="Recipes fetched successfully")
+        page_qs, meta = paginate_queryset(qs, request)
+        ser = self.get_serializer(page_qs, many=True, context={"request": request})
+        payload = {"items": list(ser.data), "meta": meta, "total": meta["total"]}
+        cache.set(cache_key, payload, timeout=settings.SEARCH_CACHE_TTL)
+        return api_response(
+            request,
+            data={"items": ser.data, "count": meta["total"]},
+            meta=meta,
+            status_code=status.HTTP_200_OK,
+            message="Recipes fetched successfully",
+        )
 
     @action(detail=False, methods=["get"], url_path=r"recipes/(?P<pk>\d+)", url_name="recipe_retrieve")
     def recipe_retrieve(self, request, pk=None, *args, **kwargs):
@@ -462,9 +634,15 @@ class ContentViewSet(viewsets.GenericViewSet):
         cat = request.query_params.get("category")
         if cat:
             qs = qs.filter(category__icontains=cat)
-        ser = self.get_serializer(qs, many=True, context={"request": request})
-        return api_response(request, data={"items": ser.data, "count": len(ser.data)},
-                            status_code=status.HTTP_200_OK, message="Deals fetched successfully")
+        page_qs, meta = paginate_queryset(qs, request)
+        ser = self.get_serializer(page_qs, many=True, context={"request": request})
+        return api_response(
+            request,
+            data={"items": ser.data, "count": meta["total"]},
+            meta=meta,
+            status_code=status.HTTP_200_OK,
+            message="Deals fetched successfully",
+        )
 
     @action(detail=False, methods=["get"], url_path=r"deals/(?P<pk>\d+)", url_name="deal_retrieve")
     def deal_retrieve(self, request, pk=None, *args, **kwargs):
@@ -482,17 +660,74 @@ class ContentViewSet(viewsets.GenericViewSet):
 
     @action(detail=False, methods=["get"], url_path="daily-tip", url_name="daily_tip")
     def daily_tip(self, request, *args, **kwargs):
-        """Return today's tip: scheduled for today, or random from active pool."""
-        today = date.today()
-        tip = DailyTip.objects.filter(scheduled_date=today, is_active=True).first()
-        if not tip:
-            tip = DailyTip.objects.filter(is_active=True, scheduled_date__isnull=True).order_by("?").first()
-        if not tip:
-            return api_response(request, data=None, status_code=status.HTTP_200_OK,
-                                message="No tips available")
-        ser = self.get_serializer(tip, context={"request": request})
-        return api_response(request, data=ser.data, status_code=status.HTTP_200_OK,
-                            message="Daily tip fetched successfully")
+        """
+        Return today's tip: the scheduled tip for today if one exists,
+        otherwise a random pick from the active unscheduled pool.
+
+        Both results are cached in Redis for the remainder of the calendar
+        day (UTC) so that:
+          - ORDER BY RANDOM() is never executed.
+          - All users see the same tip throughout the day.
+          - The DB is hit at most twice per day (once for each cache miss).
+        """
+        today_str = date.today().isoformat()
+        ttl = _tip_cache_ttl()
+
+        # ── 1. Scheduled tip ─────────────────────────────────────────
+        sched_key = tip_scheduled(today_str)
+        tip_data = cache.get(sched_key)
+
+        if tip_data is None:
+            tip = DailyTip.objects.filter(
+                scheduled_date=date.today(), is_active=True
+            ).first()
+            if tip:
+                tip_data = self.get_serializer(tip, context={"request": request}).data
+                cache.set(sched_key, tip_data, timeout=ttl)
+
+        if tip_data:
+            return api_response(
+                request,
+                data=tip_data,
+                status_code=status.HTTP_200_OK,
+                message="Daily tip fetched successfully",
+            )
+
+        # ── 2. Random tip from active unscheduled pool ───────────────
+        rand_key = tip_random(today_str)
+        tip_data = cache.get(rand_key)
+
+        if tip_data is None:
+            pool_key = _tip_pool_key(today_str)
+            tip_ids = cache.get(pool_key)
+            if tip_ids is None:
+                tip_ids = list(
+                    DailyTip.objects
+                    .filter(is_active=True, scheduled_date__isnull=True)
+                    .values_list("id", flat=True)
+                )
+                # Use midnight TTL — same as tip_random — so the pool expires when
+                # the day rolls over, not on an arbitrary fixed interval.
+                cache.set(pool_key, tip_ids, timeout=ttl)
+
+            if not tip_ids:
+                return api_response(
+                    request,
+                    data=None,
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    message="No tips available today",
+                )
+
+            tip = DailyTip.objects.get(pk=random.choice(tip_ids))
+            tip_data = self.get_serializer(tip, context={"request": request}).data
+            cache.set(rand_key, tip_data, timeout=ttl)
+
+        return api_response(
+            request,
+            data=tip_data,
+            status_code=status.HTTP_200_OK,
+            message="Daily tip fetched successfully",
+        )
 
     # ════════════════════════════════════════════════════════════════
     # CATEGORY ENDPOINTS
@@ -500,10 +735,45 @@ class ContentViewSet(viewsets.GenericViewSet):
 
     @action(detail=False, methods=["get"], url_path="categories", url_name="categories")
     def categories(self, request, *args, **kwargs):
-        qs = self.get_queryset()
-        ser = self.get_serializer(qs, many=True, context={"request": request})
-        return api_response(request, data={"items": ser.data, "count": len(ser.data)},
-                            status_code=status.HTTP_200_OK, message="Categories fetched successfully")
+        """
+        Return all active categories with ETag / 304 support.
+
+        The full list is cached in Redis (TTL = CATEGORY_CACHE_TTL, default 1 hour).
+        Cache is invalidated immediately on any Category save or delete via signal.
+        Clients that send If-None-Match receive a 304 when the list hasn't changed,
+        saving serialization and bandwidth on every repeated load.
+        """
+        items = cache.get(settings.CATEGORY_CACHE_KEY)
+
+        if items is None:
+            qs = self.get_queryset()
+            items = list(self.get_serializer(qs, many=True, context={"request": request}).data)
+            cache.set(settings.CATEGORY_CACHE_KEY, items, timeout=settings.CATEGORY_CACHE_TTL)
+
+        # ETag derived from content hash — changes only when the category list changes.
+        raw = json.dumps(items, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        etag_value = hashlib.sha256(raw).hexdigest()[:32]
+        etag_quoted = f'W/"{etag_value}"'
+
+        inm = request.headers.get("If-None-Match", "")
+        candidates = {t.strip().strip('W/w"') for t in ETAG_SPLIT_RE.split(inm) if t.strip()}
+        if etag_value in candidates:
+            resp = api_response(request, data=None,
+                                status_code=status.HTTP_304_NOT_MODIFIED,
+                                message="Not Modified")
+            resp["ETag"] = etag_quoted
+            resp["Cache-Control"] = "private, max-age=3600, stale-while-revalidate=300"
+            return resp
+
+        resp = api_response(
+            request,
+            data={"items": items, "count": len(items)},
+            status_code=status.HTTP_200_OK,
+            message="Categories fetched successfully",
+        )
+        resp["ETag"] = etag_quoted
+        resp["Cache-Control"] = "private, max-age=3600, stale-while-revalidate=300"
+        return resp
 
     # ════════════════════════════════════════════════════════════════
     # USER DAILY STATS ENDPOINTS
@@ -519,6 +789,7 @@ class ContentViewSet(viewsets.GenericViewSet):
         return api_response(request, data=ser.data, status_code=status.HTTP_200_OK,
                             message="Today's stats fetched successfully")
 
+    @transaction.atomic
     @action(detail=False, methods=["patch"], url_path="stats/update", url_name="stats_update")
     def stats_update(self, request, *args, **kwargs):
         """Update today's stats (partial update)."""
@@ -559,6 +830,7 @@ class ContentViewSet(viewsets.GenericViewSet):
         return api_response(request, data=ser.data, status_code=status.HTTP_200_OK,
                             message="Plan item updated")
 
+    @transaction.atomic
     @action(detail=False, methods=["post"], url_path="plan/create", url_name="plan_create")
     def plan_create(self, request, *args, **kwargs):
         """Create a new plan item for the authenticated user."""

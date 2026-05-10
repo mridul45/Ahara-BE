@@ -1,7 +1,8 @@
 from datetime import timezone
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
-from django.db.models import F
+from django.db.models import Case, ExpressionWrapper, F, FloatField, Value, When
+from django.db.models.functions import Cast
 from django.utils.translation import gettext_lazy as _
 from utilities.enums import (ContentGenreEnum,LanguageEnum,CTypeEnum,DifficultyLevelEnum)
 from utilities.storages import ImageKitStorage
@@ -98,10 +99,12 @@ class Playlist(models.Model):
     last_completed_at = models.DateTimeField(null=True, blank=True)
     last_interaction_at = models.DateTimeField(null=True, blank=True)
 
-    # Optional breakdowns & metadata (Postgres JSONB works great)
+    # DEPRECATED — nothing currently writes to this field.
+    # Either implement a nightly analytics rollup task (see FURTHER_OPTIMIZATIONS §7.1)
+    # or remove this field and its migration in the next cleanup pass.
     breakdown = models.JSONField(
         null=True, blank=True,
-        help_text=_("Small cached breakdowns, e.g., {'device': {'ios': 120, 'android': 300}, 'geo': {...}}")
+        help_text=_("Cached breakdown by device/geo. Currently unpopulated — reserved for future rollup task.")
     )
 
     class Meta:
@@ -113,6 +116,10 @@ class Playlist(models.Model):
             models.Index(fields=("impressions", "-ctr")),  # fast ranking in feeds
             models.Index(fields=("completion_rate",)),
             models.Index(fields=("language", "playlist_type")),
+            # Single-column indexes so filter(playlist_type=...) or filter(language=...)
+            # alone can use an index without needing the composite prefix.
+            models.Index(fields=("playlist_type",), name="playlist_type_idx"),
+            models.Index(fields=("language",), name="playlist_language_idx"),
         ]
 
     def __str__(self):
@@ -159,17 +166,27 @@ class Playlist(models.Model):
         )
 
     def add_watch_time(self, seconds: int):
-        """Update total + rolling average safely."""
+        """Increment total_watch_seconds and recompute avg_watch_seconds in one UPDATE.
+
+        Uses a CASE WHEN expression so the average is computed at the DB level —
+        no refresh_from_db, no second UPDATE, no race window.
+        """
         seconds = max(0, int(seconds or 0))
-        # Update totals
+        new_total = F("total_watch_seconds") + seconds
         self.__class__.objects.filter(pk=self.pk).update(
-            total_watch_seconds=F("total_watch_seconds") + seconds
+            total_watch_seconds=new_total,
+            avg_watch_seconds=Case(
+                When(
+                    starts__gt=0,
+                    then=ExpressionWrapper(
+                        Cast(new_total, FloatField()) / Cast(F("starts"), FloatField()),
+                        output_field=FloatField(),
+                    ),
+                ),
+                default=Value(0.0),
+                output_field=FloatField(),
+            ),
         )
-        # Optionally refresh small fields for in-process average (cheap read)
-        self.refresh_from_db(fields=["total_watch_seconds", "starts"])
-        if self.starts:
-            new_avg = self.total_watch_seconds / float(self.starts)
-            self.__class__.objects.filter(pk=self.pk).update(avg_watch_seconds=new_avg)
 
     def add_rating(self, stars: int):
         stars = int(stars or 0)
@@ -493,7 +510,11 @@ class Deal(models.Model):
         verbose_name = _("Deal")
         verbose_name_plural = _("Deals")
         ordering = ["-created_at"]
-        indexes = [models.Index(fields=["is_active", "-created_at"])]
+        indexes = [
+            models.Index(fields=["is_active", "-created_at"]),
+            # Supports "active deals" filter (expires_at > NOW()) and cleanup tasks.
+            models.Index(fields=["expires_at"], name="deal_expires_at_idx"),
+        ]
 
     def __str__(self):
         return f"{self.emoji} {self.item_name}"
@@ -637,7 +658,14 @@ class UserPlanItem(models.Model):
         verbose_name = _("User Plan Item")
         verbose_name_plural = _("User Plan Items")
         ordering = ["date", "order", "time"]
-        indexes = [models.Index(fields=["user", "date"])]
+        indexes = [
+            # (user, date) is preserved as a prefix — all existing filter(user, date)
+            # queries still use this index. is_done extends it to cover the natural
+            # "show incomplete items for today" query without a second index.
+            models.Index(fields=["user", "date", "is_done"], name="planitem_user_date_done_idx"),
+            # Covers "all plan items for user X tied to session Y" analytics queries.
+            models.Index(fields=["user", "session"], name="planitem_user_session_idx"),
+        ]
 
     def __str__(self):
         return f"{self.time:%H:%M} — {self.title}"

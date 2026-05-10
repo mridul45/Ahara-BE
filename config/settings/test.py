@@ -3,6 +3,7 @@ With these settings, tests run faster.
 """
 
 from .base import *  # noqa: F403
+from .base import DATABASES
 from .base import TEMPLATES
 from .base import env
 
@@ -53,5 +54,11 @@ REST_FRAMEWORK = {
     },
     "EXCEPTION_HANDLER": "utilities.response.unified_exception_handler",
 }
+# DATABASE
+# ------------------------------------------------------------------------------
+# Disable connection pooling in tests — persistent connections can leak
+# transaction state between test cases.
+DATABASES["default"]["CONN_MAX_AGE"] = 0  # type: ignore[index]
+
 # Your stuff...
 # ------------------------------------------------------------------------------

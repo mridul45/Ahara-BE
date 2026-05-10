@@ -1,8 +1,10 @@
 import logging
+import threading
 import uuid
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Count, Prefetch
 from django.http import StreamingHttpResponse
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -10,6 +12,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from google import genai
 
+from ahara.users.api_utils.throtles import AiAskThrottle, AiEndSessionThrottle
 from utilities.response import api_response
 from .models import ChatMessage, ChatSession
 from .serializers import (
@@ -69,8 +72,8 @@ class IntelligenceViewSet(viewsets.GenericViewSet):
         "update_memory": [JWTAuthentication],
     }
     throttle_action_classes = {
-        "ask_gemini": [],
-        "end_session": [],
+        "ask_gemini": [AiAskThrottle],
+        "end_session": [AiEndSessionThrottle],
         "list_sessions": [],
         "get_session": [],
         "delete_session": [],
@@ -156,7 +159,10 @@ class IntelligenceViewSet(viewsets.GenericViewSet):
         full_prompt += f"\n\nUser Query: {prompt}"
 
         try:
-            client = genai.Client(api_key=api_key)
+            client = genai.Client(
+                api_key=api_key,
+                http_options={"timeout": 30},
+            )
             model_name = "models/gemini-2.5-flash"
 
             # Pre-persist the user message so it's available immediately
@@ -165,6 +171,10 @@ class IntelligenceViewSet(viewsets.GenericViewSet):
                 role=ChatMessage.Role.USER,
                 content=prompt,
             )
+
+            # Flag set when the client disconnects mid-stream so the generator
+            # can stop consuming Gemini output and avoid wasting API tokens.
+            _disconnected = threading.Event()
 
             def stream_generator():
                 accumulated_response = ""
@@ -178,10 +188,30 @@ class IntelligenceViewSet(viewsets.GenericViewSet):
                     stream = reasoner.generate_stream(full_prompt)
 
                     for chunk in stream:
+                        # Stop iterating Gemini output if the client has gone away.
+                        if _disconnected.is_set():
+                            logger.info(
+                                "intelligence.ask user=%s session=%s stream_cancelled_on_disconnect",
+                                request.user.id, session.id,
+                            )
+                            break
+
                         if hasattr(chunk, "text") and chunk.text:
                             text_chunk = chunk.text
                             accumulated_response += text_chunk
                             yield text_chunk
+
+                        # Log token usage when the final chunk arrives.
+                        usage = getattr(chunk, "usage_metadata", None)
+                        if usage:
+                            logger.info(
+                                "intelligence.gemini_tokens user=%s session=%s "
+                                "prompt_tokens=%s candidates_tokens=%s total_tokens=%s",
+                                request.user.id, session.id,
+                                getattr(usage, "prompt_token_count", "?"),
+                                getattr(usage, "candidates_token_count", "?"),
+                                getattr(usage, "total_token_count", "?"),
+                            )
 
                     # ── POST-STREAM: Persist assistant message ────────
                     if accumulated_response:
@@ -198,6 +228,9 @@ class IntelligenceViewSet(viewsets.GenericViewSet):
                         request.user, prompt, accumulated_response,
                     )
 
+                except GeneratorExit:
+                    # Client closed the connection — signal the loop to stop.
+                    _disconnected.set()
                 except Exception as e:
                     logger.exception(
                         "intelligence.ask user=%s session=%s error=%s",
@@ -253,6 +286,15 @@ class IntelligenceViewSet(viewsets.GenericViewSet):
         """
         result = MemoryManager.end_session(request.user)
 
+        # Fire consolidation in a daemon thread so this response returns
+        # immediately (~0 ms) instead of waiting 1-2 s for Gemini.
+        user_id = request.user.id
+
+
+        thread.start()
+
+        result["consolidated"] = "async"
+
         return api_response(
             request,
             status_code=status.HTTP_200_OK,
@@ -274,10 +316,19 @@ class IntelligenceViewSet(viewsets.GenericViewSet):
         Query params:
             ?page=1  (default, 20 per page)
         """
-        sessions = ChatSession.objects.filter(
-            user=request.user,
-            is_archived=False,
-        ).order_by("-updated_at")
+        sessions = (
+            ChatSession.objects
+            .filter(user=request.user, is_archived=False)
+            .annotate(message_count=Count("messages"))
+            .prefetch_related(
+                Prefetch(
+                    "messages",
+                    queryset=ChatMessage.objects.order_by("-created_at"),
+                    to_attr="_messages_list",
+                )
+            )
+            .order_by("-updated_at")
+        )
 
         # Simple offset pagination
         page = int(request.query_params.get("page", 1))
@@ -325,10 +376,16 @@ class IntelligenceViewSet(viewsets.GenericViewSet):
             )
 
         try:
-            session = ChatSession.objects.get(
-                id=session_uuid,
-                user=request.user,
-                is_archived=False,
+            session = (
+                ChatSession.objects
+                .prefetch_related(
+                    Prefetch(
+                        "messages",
+                        queryset=ChatMessage.objects.order_by("created_at"),
+                        to_attr="_messages_list",
+                    )
+                )
+                .get(id=session_uuid, user=request.user, is_archived=False)
             )
         except ChatSession.DoesNotExist:
             return api_response(
@@ -400,10 +457,16 @@ class IntelligenceViewSet(viewsets.GenericViewSet):
         """
         if session_id:
             try:
-                return ChatSession.objects.get(
-                    id=session_id,
-                    user=user,
-                    is_archived=False,
+                return (
+                    ChatSession.objects
+                    .prefetch_related(
+                        Prefetch(
+                            "messages",
+                            queryset=ChatMessage.objects.order_by("-created_at"),
+                            to_attr="_messages_list",
+                        )
+                    )
+                    .get(id=session_id, user=user, is_archived=False)
                 )
             except ChatSession.DoesNotExist:
                 # Client created this session locally (offline-first).
@@ -438,10 +501,15 @@ class IntelligenceViewSet(viewsets.GenericViewSet):
 
         Returns an empty string for new sessions (no prior messages).
         """
-        messages = (
-            session.messages
-            .order_by("-created_at")[:RESUMED_SESSION_CONTEXT_PAIRS * 2]
-        )
+        prefetched = getattr(session, "_messages_list", None)
+        if prefetched is not None:
+            # Already ordered by -created_at; slice the most recent N pairs.
+            messages = prefetched[:RESUMED_SESSION_CONTEXT_PAIRS * 2]
+        else:
+            messages = list(
+                session.messages
+                .order_by("-created_at")[:RESUMED_SESSION_CONTEXT_PAIRS * 2]
+            )
         # Reverse to chronological order
         messages = list(messages)[::-1]
 

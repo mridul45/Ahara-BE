@@ -42,12 +42,24 @@ class ChatSessionListSerializer(serializers.ModelSerializer):
 
     def get_preview(self, obj: ChatSession) -> str:
         """Return a truncated preview of the last message in this session."""
-        last_msg = obj.messages.order_by("-created_at").values_list("content", flat=True).first()
-        if not last_msg:
-            return ""
-        return last_msg[:80].replace("\n", " ")
+        msgs = getattr(obj, "_messages_list", None)
+        if msgs is not None:
+            content = msgs[0].content if msgs else ""
+        else:
+            content = (
+                obj.messages.order_by("-created_at")
+                .values_list("content", flat=True)
+                .first()
+            ) or ""
+        return content[:80].replace("\n", " ")
 
     def get_message_count(self, obj: ChatSession) -> int:
+        # Use DB annotation when available (set by list_sessions queryset).
+        if hasattr(obj, "message_count"):
+            return obj.message_count
+        msgs = getattr(obj, "_messages_list", None)
+        if msgs is not None:
+            return len(msgs)
         return obj.messages.count()
 
 
@@ -71,7 +83,9 @@ class ChatSessionDetailSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_messages(self, obj: ChatSession) -> list[dict]:
-        msgs = obj.messages.order_by("created_at")
+        msgs = getattr(obj, "_messages_list", None)
+        if msgs is None:
+            msgs = obj.messages.order_by("created_at")
         return ChatMessageSerializer(msgs, many=True).data
 
 

@@ -1,6 +1,7 @@
 import uuid
 
 from django.db import models
+from django.db.models import Q
 from django.conf import settings
 from django.core.cache import cache
 
@@ -66,8 +67,10 @@ class Memory(models.Model):
 
         super().save(*args, **kwargs)
 
-        # Invalidate cached memory so next read refetches.
-        cache.delete(f"user_memory_{self.user_id}")
+        # Invalidate both cache keys so next read refetches.
+        from utilities.cache_keys import memory_long_term, memory_snapshot
+        cache.delete(memory_long_term(self.user_id))
+        cache.delete(memory_snapshot(self.user_id))
 
     # ── Helpers ──────────────────────────────────────────────────────
 
@@ -143,6 +146,13 @@ class ChatSession(models.Model):
                 fields=["user", "-updated_at"],
                 name="idx_chatsession_user_updated",
             ),
+            # Partial index covering only non-archived sessions — the set that every
+            # list query touches. Eliminates archived rows from the index entirely.
+            models.Index(
+                fields=["user", "-updated_at"],
+                condition=Q(is_archived=False),
+                name="idx_active_sessions",
+            ),
         ]
 
     def __str__(self):
@@ -191,12 +201,23 @@ class ChatSession(models.Model):
         return archived_count
 
 
+class ChatMessageManager(models.Manager):
+    """Default manager — excludes soft-deleted messages from all queries."""
+
+    def get_queryset(self):
+        return super().get_queryset().filter(deleted_at__isnull=True)
+
+
 class ChatMessage(models.Model):
     """
     Individual message within a ChatSession.
 
     Stores the raw user prompt or assistant response with its role and
     timestamp, preserving the full conversation for resumption.
+
+    Soft-delete: set deleted_at instead of calling .delete() to satisfy
+    compliance / audit requirements. The default manager hides deleted rows.
+    Use ChatMessage.all_objects to query across deleted messages.
     """
 
     class Role(models.TextChoices):
@@ -214,6 +235,10 @@ class ChatMessage(models.Model):
     )
     content = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
+    deleted_at = models.DateTimeField(null=True, blank=True, db_index=True)
+
+    objects = ChatMessageManager()
+    all_objects = models.Manager()  # unfiltered access for admin / compliance
 
     class Meta:
         verbose_name = "Chat Message"
@@ -224,8 +249,19 @@ class ChatMessage(models.Model):
                 fields=["session", "created_at"],
                 name="idx_chatmsg_session_created",
             ),
+            # Covers order_by("-created_at") slices used when building history context.
+            models.Index(
+                fields=["session", "-created_at"],
+                name="idx_chatmsg_sess_ts_desc",
+            ),
         ]
 
     def __str__(self):
         preview = self.content[:60].replace("\n", " ")
         return f"[{self.role}] {preview}..."
+
+    def soft_delete(self):
+        """Mark this message as deleted without removing the row."""
+        from django.utils import timezone
+        self.deleted_at = timezone.now()
+        self.save(update_fields=["deleted_at"])

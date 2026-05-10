@@ -12,10 +12,6 @@ SECRET_KEY = env("DJANGO_SECRET_KEY")
 # https://docs.djangoproject.com/en/dev/ref/settings/#allowed-hosts
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["example.com"])
 
-# DATABASES
-# ------------------------------------------------------------------------------
-DATABASES["default"]["CONN_MAX_AGE"] = env.int("CONN_MAX_AGE", default=60)
-
 # CACHES
 # ------------------------------------------------------------------------------
 CACHES = {
@@ -213,5 +209,31 @@ LOGGING = {
 }
 
 
-# Your stuff...
+# Sentry — error tracking & performance monitoring
 # ------------------------------------------------------------------------------
+# Set SENTRY_DSN in the environment to enable. Leaving it blank disables Sentry
+# entirely (safe default so the app starts without a DSN configured).
+_SENTRY_DSN = env("SENTRY_DSN", default="")
+if _SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.celery import CeleryIntegration
+    from sentry_sdk.integrations.django import DjangoIntegration
+    from sentry_sdk.integrations.logging import LoggingIntegration
+
+    sentry_sdk.init(
+        dsn=_SENTRY_DSN,
+        integrations=[
+            DjangoIntegration(),
+            CeleryIntegration(),
+            LoggingIntegration(level=None, event_level=None),
+        ],
+        # Sample 10 % of requests for performance traces.
+        # Increase once baseline latency is established.
+        traces_sample_rate=env.float("SENTRY_TRACES_SAMPLE_RATE", default=0.1),
+        # Profile 10 % of sampled transactions to pinpoint slow DB queries
+        # and long-running Gemini calls.
+        profiles_sample_rate=env.float("SENTRY_PROFILES_SAMPLE_RATE", default=0.1),
+        environment=env("DJANGO_ENV", default="production"),
+        # Do not send user passwords or cookie values.
+        send_default_pii=False,
+    )

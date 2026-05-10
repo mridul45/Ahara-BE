@@ -525,4 +525,4 @@ class AmbientSoundAdmin(admin.ModelAdmin):
 
 @admin.register(SearchConfig)
 class SearchConfigAdmin(admin.ModelAdmin):
-    list_display = ("__str__", "updated_at")
+    list_display = ("__str__", "is_active")

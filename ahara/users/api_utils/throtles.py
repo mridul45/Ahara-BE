@@ -1,5 +1,4 @@
-from rest_framework.throttling import AnonRateThrottle
-from rest_framework.throttling import SimpleRateThrottle
+from rest_framework.throttling import AnonRateThrottle, SimpleRateThrottle, UserRateThrottle
 
 
 class SignupThrottle(AnonRateThrottle):
@@ -29,6 +28,20 @@ class VerifyOtpIPThrottle(AnonRateThrottle):
     Rate configured by DEFAULT_THROTTLE_RATES['verify_otp'].
     """
     scope = "verify_otp"
+
+
+class AiAskThrottle(UserRateThrottle):
+    """Per-user throttle for Gemini-backed AI endpoints.
+
+    Limits are intentionally low to protect API cost budget.
+    Rate configured by DEFAULT_THROTTLE_RATES['ai_ask'].
+    """
+    scope = "ai_ask"
+
+
+class AiEndSessionThrottle(UserRateThrottle):
+    """Per-user throttle for the end-session endpoint."""
+    scope = "ai_end_session"
 
 
 class VerifyOtpUserThrottle(SimpleRateThrottle):

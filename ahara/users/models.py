@@ -97,6 +97,17 @@ class User(AbstractBaseUser, PermissionsMixin):
         verbose_name = "user"
         verbose_name_plural = "users"
         ordering = ["-date_joined"]
+        indexes = [
+            # Covers Meta.ordering — every User queryset that doesn't override
+            # ordering sorts by date_joined DESC; this turns that sort into an
+            # index scan instead of a sequential scan + sort.
+            models.Index(fields=["date_joined"], name="user_date_joined_idx"),
+            # Covers "active users ordered by join date" — the natural shape of
+            # admin list views, future user analytics, and recommendation queries.
+            # is_active is boolean (low cardinality) so it is only useful as a
+            # prefix when paired with a selective second column.
+            models.Index(fields=["is_active", "date_joined"], name="user_active_joined_idx"),
+        ]
 
     def __str__(self):
         return self.username or self.email
