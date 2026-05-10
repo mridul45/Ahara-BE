@@ -113,7 +113,10 @@ STATIC_URL = f"https://{aws_s3_domain}/static/"
 # https://docs.djangoproject.com/en/dev/ref/settings/#default-from-email
 DEFAULT_FROM_EMAIL = env(
     "DJANGO_DEFAULT_FROM_EMAIL",
-    default="Ahara <noreply@example.com>",
+    # Falls back to Resend's shared test domain so emails work even before a
+    # custom domain is verified.  Once a domain is verified, override this with:
+    #   DJANGO_DEFAULT_FROM_EMAIL=Ahara <noreply@yourdomain.com>
+    default="onboarding@resend.dev",
 )
 # https://docs.djangoproject.com/en/dev/ref/settings/#server-email
 SERVER_EMAIL = env("DJANGO_SERVER_EMAIL", default=DEFAULT_FROM_EMAIL)
