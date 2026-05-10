@@ -36,7 +36,7 @@ from .serializers import (
     UserUpdateSerializer,
 )
 from django.core.cache import cache
-from utilities.email import send_otp_email
+from utilities.email import send_otp_email, OtpEmailError
 from utilities.username_gen import _generate_unique_username
 from utilities.otp import generate_otp
 ''' <-------------------------------------- IMPORTS FINISH --------------------------------------> '''
@@ -214,9 +214,16 @@ class AuthViewSet(viewsets.GenericViewSet):
 
         cache_key = f"auth_otp_{email}"
         cache.set(cache_key, {"otp": otp}, timeout=600)  # 10 minutes
-        print(f"DEBUG - Storing in cache for login: Key='{cache_key}', Data={{'otp': '{otp}'}}")
 
-        send_otp_email(to_email=email, otp=otp)
+        try:
+            send_otp_email(to_email=email, otp=otp)
+        except OtpEmailError as e:
+            cache.delete(cache_key)  # don't leave a dangling OTP
+            return api_response(
+                request,
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                errors={"detail": "Could not send verification email. Please try again shortly."},
+            )
 
         return api_response(
             request,
@@ -239,9 +246,16 @@ class AuthViewSet(viewsets.GenericViewSet):
 
         cache_key = f"auth_otp_{email}"
         cache.set(cache_key, {"otp": otp}, timeout=600)  # 10 minutes
-        print(f"DEBUG - Storing in cache for signup: Key='{cache_key}', Data={{'otp': '{otp}'}}")
 
-        send_otp_email(to_email=email, otp=otp)
+        try:
+            send_otp_email(to_email=email, otp=otp)
+        except OtpEmailError as e:
+            cache.delete(cache_key)  # don't leave a dangling OTP
+            return api_response(
+                request,
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                errors={"detail": "Could not send verification email. Please try again shortly."},
+            )
 
         return api_response(
             request,
